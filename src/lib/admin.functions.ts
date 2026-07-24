@@ -345,15 +345,19 @@ export const transcribeVideoFile = createServerFn({ method: "POST" })
     await assertAdmin(context);
     const apiKey = process.env.ELEVENLABS_API_KEY;
     if (!apiKey) throw new Error("ElevenLabs is not connected");
-    const { data: file, error } = await context.supabase.storage.from("videos").download(data.path);
-    if (error || !file) throw new Error(error?.message || "Could not read uploaded video");
 
-    const filename = data.path.split("/").pop() || "video.mp4";
-    // Cloudflare Workers: convert to ArrayBuffer so FormData/fetch streams it reliably
-    const buf = await file.arrayBuffer();
+    // Let ElevenLabs pull the video directly from storage instead of
+    // buffering it in the Worker.
+    const { data: signed, error: signError } = await context.supabase.storage
+      .from("videos")
+      .createSignedUrl(data.path, 3600);
+    if (signError || !signed?.signedUrl) {
+      throw new Error(signError?.message || "Could not create a signed URL for the video");
+    }
+
     const fd = new FormData();
-    fd.append("file", new Blob([buf], { type: file.type || "video/mp4" }), filename);
     fd.append("model_id", "scribe_v1");
+    fd.append("source_url", signed.signedUrl);
     fd.append("tag_audio_events", "false");
     fd.append("diarize", "false");
 
