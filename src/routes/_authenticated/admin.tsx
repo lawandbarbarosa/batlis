@@ -37,6 +37,7 @@ import {
   transcribeVideoFile,
   translateTranscriptLines,
   generateWordMeaning,
+  extractBookPages,
 } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -657,7 +658,7 @@ interface TranscriptLine { t?: number; en: string; ku_sorani?: string; ku_badini
 
 const POS_OPTIONS = ["noun", "verb", "adjective", "adverb", "phrase", "other"] as const;
 
-function tokenizeWords(text: string): string[] {
+function tokenizeWords(text?: string): string[] {
   return (text || "").split(/\s+/).filter(Boolean);
 }
 
@@ -898,7 +899,18 @@ function TranscriptEditor({ value, onChange, sourceLanguage }: { value: Transcri
   );
 }
 
-interface BookParagraph { text: string; ku_sorani?: string; ku_badini?: string; highlights?: WordHighlight[] }
+// A content block is either a text paragraph or an inline image. `type` is
+// optional so existing rows saved before this field existed still load fine
+// (missing type === "paragraph").
+interface BookParagraph {
+  type?: "paragraph" | "image";
+  text?: string;
+  ku_sorani?: string;
+  ku_badini?: string;
+  highlights?: WordHighlight[];
+  image_path?: string;
+  caption?: string;
+}
 
 function BooksTab() {
   const { t } = useDialect();
@@ -968,6 +980,9 @@ function BookForm({ value, onChange }: { value: Record<string, unknown>; onChang
   const [uploadingCover, setUploadingCover] = useState(false);
   const [translating, setTranslating] = useState(false);
   const translateFn = useServerFn(translateTranscriptLines);
+  const extractFn = useServerFn(extractBookPages);
+  const [readingPages, setReadingPages] = useState(false);
+  const [readingProgress, setReadingProgress] = useState<{ done: number; total: number } | null>(null);
 
   const onCoverUpload = async (file: File) => {
     setUploadingCover(true);
@@ -989,6 +1004,50 @@ function BookForm({ value, onChange }: { value: Record<string, unknown>; onChang
     ? supabase.storage.from("book-covers").getPublicUrl(value.cover_path as string).data.publicUrl
     : null;
 
+  // Upload page photos/scans of the book, then let the AI read each page and
+  // turn it into paragraph(s) below. Pages that are pure illustrations come
+  // back with no text and are skipped — add those manually as image blocks
+  // if you want to keep them in the book.
+  const onUploadBookPages = async (files: File[]) => {
+    setReadingPages(true);
+    setReadingProgress({ done: 0, total: files.length });
+    try {
+      const paths: string[] = [];
+      for (const file of files) {
+        const ext = file.name.split(".").pop() || "jpg";
+        const path = `${(value.language_code as string) || "en"}/${crypto.randomUUID()}.${ext}`;
+        const { error } = await supabase.storage.from("book-pages").upload(path, file, { upsert: false, contentType: file.type });
+        if (error) throw error;
+        paths.push(path);
+      }
+      // Send a handful of pages per request so no single request gets too large.
+      const batchSize = 3;
+      const newParagraphs: BookParagraph[] = [];
+      for (let i = 0; i < paths.length; i += batchSize) {
+        const batch = paths.slice(i, i + batchSize);
+        const res = await extractFn({ data: { paths: batch } });
+        for (const pageTexts of res.paragraphsByPage) {
+          for (const text of pageTexts) {
+            newParagraphs.push({ type: "paragraph", text, ku_sorani: "", ku_badini: "" });
+          }
+        }
+        setReadingProgress({ done: Math.min(i + batch.length, paths.length), total: paths.length });
+      }
+      const existing = (value.content_json as BookParagraph[]) ?? [];
+      set("content_json", [...existing, ...newParagraphs]);
+      const skippedPages = paths.length - newParagraphs.length;
+      toast.success(
+        `Added ${newParagraphs.length} paragraph${newParagraphs.length === 1 ? "" : "s"} from ${paths.length} page${paths.length === 1 ? "" : "s"}` +
+        (newParagraphs.length < paths.length ? ` (some pages had no readable text)` : ""),
+      );
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setReadingPages(false);
+      setReadingProgress(null);
+    }
+  };
+
   const onTranslate = async (overwrite: boolean) => {
     const paragraphs = (value.content_json as BookParagraph[]) ?? [];
     const indices = paragraphs
@@ -1000,7 +1059,7 @@ function BookForm({ value, onChange }: { value: Record<string, unknown>; onChang
       const res = await translateFn({
         data: {
           source_language: (value.language_code as "en" | "de" | "ar" | "ko") || "en",
-          lines: indices.map(({ p }) => ({ en: p.text })),
+          lines: indices.map(({ p }) => ({ en: p.text ?? "" })),
         },
       });
       const next = paragraphs.slice();
@@ -1054,6 +1113,33 @@ function BookForm({ value, onChange }: { value: Record<string, unknown>; onChang
         )}
         {value.cover_path ? <p className="text-xs text-muted-foreground">Uploaded: {value.cover_path as string}</p> : null}
         {uploadingCover && <p className="text-xs">Uploading cover…</p>}
+      </div>
+
+      <div className="rounded-md border p-3 bg-muted/30 grid gap-2">
+        <Label>Upload book (AI reads it)</Label>
+        <p className="text-xs text-muted-foreground">
+          Upload photos or scans of the book's pages, in reading order — even pages that include pictures.
+          The AI reads the text on each page and adds it as paragraph(s) below. Pages that are pure
+          illustrations are skipped automatically; add those further down as image blocks if you want to
+          keep them in the book.
+        </p>
+        <Input
+          type="file"
+          accept="image/*"
+          multiple
+          disabled={readingPages}
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            if (files.length) onUploadBookPages(files);
+            e.target.value = "";
+          }}
+        />
+        {readingPages && (
+          <p className="text-xs flex items-center gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Reading pages… {readingProgress ? `${readingProgress.done}/${readingProgress.total}` : ""}
+          </p>
+        )}
       </div>
 
       <div className="rounded-md border p-3 bg-muted/30 grid gap-2">
@@ -1288,27 +1374,99 @@ function BookParagraphEditor({ value, onChange, sourceLanguage }: { value: BookP
     next[i] = { ...next[i], ...patch };
     onChange(next);
   };
-  const add = () => onChange([...value, { text: "", ku_sorani: "", ku_badini: "" }]);
+  const insertAt = (i: number, block: BookParagraph) => {
+    const next = value.slice();
+    next.splice(i, 0, block);
+    onChange(next);
+  };
+  const addParagraph = (i: number) => insertAt(i, { type: "paragraph", text: "", ku_sorani: "", ku_badini: "" });
+  const addImage = (i: number) => insertAt(i, { type: "image", image_path: "", caption: "" });
   const remove = (i: number) => onChange(value.filter((_, idx) => idx !== i));
+
   return (
     <div className="grid gap-2">
       <div className="flex items-center justify-between">
-        <Label>Paragraphs</Label>
-        <Button type="button" size="sm" variant="outline" onClick={add}>+ Add paragraph</Button>
-      </div>
-      {value.length === 0 && <p className="text-xs text-muted-foreground">No paragraphs yet. Click "Add paragraph" to start.</p>}
-      {value.map((p, i) => (
-        <div key={i} className="rounded-md border p-3 grid gap-2 bg-muted/30">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">Paragraph {i + 1}</span>
-            <Button type="button" size="sm" variant="ghost" onClick={() => remove(i)}>✕</Button>
-          </div>
-          <Textarea placeholder="Paragraph text" dir="ltr" value={p.text} onChange={(e) => update(i, { text: e.target.value })} />
-          <ParagraphHighlighter paragraph={p} onChange={(highlights) => update(i, { highlights })} sourceLanguage={sourceLanguage} />
-          <Input placeholder="Kurdish (Sorani) translation" value={p.ku_sorani ?? ""} onChange={(e) => update(i, { ku_sorani: e.target.value })} />
-          <Input placeholder="Kurdish (Badini) translation" value={p.ku_badini ?? ""} onChange={(e) => update(i, { ku_badini: e.target.value })} />
+        <Label>Content</Label>
+        <div className="flex gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => addParagraph(value.length)}>+ Add paragraph</Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => addImage(value.length)}>+ Add image</Button>
         </div>
-      ))}
+      </div>
+      {value.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          No content yet. Click "Add paragraph" / "Add image" above, or upload page photos above for the AI to read.
+        </p>
+      )}
+      {value.map((p, i) => {
+        const isImage = p.type === "image";
+        return (
+          <div key={i}>
+            <div className="rounded-md border p-3 grid gap-2 bg-muted/30">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">{isImage ? "Image" : "Paragraph"} {i + 1}</span>
+                <Button type="button" size="sm" variant="ghost" onClick={() => remove(i)}>✕</Button>
+              </div>
+              {isImage ? (
+                <BookImageBlock paragraph={p} onChange={(patch) => update(i, patch)} />
+              ) : (
+                <>
+                  <Textarea placeholder="Paragraph text" dir="ltr" value={p.text ?? ""} onChange={(e) => update(i, { text: e.target.value })} />
+                  <ParagraphHighlighter paragraph={p} onChange={(highlights) => update(i, { highlights })} sourceLanguage={sourceLanguage} />
+                  <Input placeholder="Kurdish (Sorani) translation" value={p.ku_sorani ?? ""} onChange={(e) => update(i, { ku_sorani: e.target.value })} />
+                  <Input placeholder="Kurdish (Badini) translation" value={p.ku_badini ?? ""} onChange={(e) => update(i, { ku_badini: e.target.value })} />
+                </>
+              )}
+            </div>
+            {/* Insert a new block at this exact position — this is how an image (or
+                paragraph) gets placed "anywhere", not just appended to the end. */}
+            <div className="flex gap-3 justify-center py-1">
+              <button type="button" className="text-[11px] text-muted-foreground hover:text-foreground underline decoration-dotted" onClick={() => addParagraph(i + 1)}>+ paragraph here</button>
+              <button type="button" className="text-[11px] text-muted-foreground hover:text-foreground underline decoration-dotted" onClick={() => addImage(i + 1)}>+ image here</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BookImageBlock({ paragraph, onChange }: { paragraph: BookParagraph; onChange: (patch: Partial<BookParagraph>) => void }) {
+  const [uploading, setUploading] = useState(false);
+  const previewUrl = paragraph.image_path
+    ? supabase.storage.from("book-images").getPublicUrl(paragraph.image_path).data.publicUrl
+    : null;
+
+  const onUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop() || "jpg";
+      const path = `${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.storage.from("book-images").upload(path, file, { upsert: false, contentType: file.type });
+      if (error) throw error;
+      onChange({ image_path: path });
+      toast.success("Image uploaded");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-2">
+      <Input
+        type="file"
+        accept="image/*"
+        disabled={uploading}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ""; }}
+      />
+      {previewUrl ? (
+        <img src={previewUrl} alt={paragraph.caption || "Book image"} className="max-h-64 w-auto rounded-md object-contain bg-background border" />
+      ) : (
+        <p className="text-xs text-muted-foreground">JPG or PNG. Appears inline in the book at this exact position.</p>
+      )}
+      {uploading && <p className="text-xs flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" /> Uploading…</p>}
+      <Input placeholder="Caption (optional)" value={paragraph.caption ?? ""} onChange={(e) => onChange({ caption: e.target.value })} />
     </div>
   );
 }
