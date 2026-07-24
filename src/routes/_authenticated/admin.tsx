@@ -40,6 +40,7 @@ import {
   extractBookPages,
 } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
+import { BannerEditorDialog } from "@/components/banner-editor";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   ssr: false,
@@ -481,6 +482,7 @@ function VideoForm({ value, onChange }: { value: Record<string, unknown>; onChan
   const [uploading, setUploading] = useState(false);
   const [uploadElapsed, setUploadElapsed] = useState(0);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [bannerEditor, setBannerEditor] = useState<{ url: string; crossOrigin: boolean; revoke: boolean } | null>(null);
   const [transcribing, setTranscribing] = useState(false);
   const [translating, setTranslating] = useState(false);
   const transcribe = useServerFn(transcribeVideoFile);
@@ -516,12 +518,11 @@ function VideoForm({ value, onChange }: { value: Record<string, unknown>; onChan
     }
   };
 
-  const onBannerUpload = async (file: File) => {
+  const onBannerUpload = async (blob: Blob) => {
     setUploadingBanner(true);
     try {
-      const ext = file.name.split(".").pop() || "jpg";
-      const path = `${(value.language_code as string) || "en"}/${crypto.randomUUID()}.${ext}`;
-      const { error } = await supabase.storage.from("video-banners").upload(path, file, { upsert: false, contentType: file.type });
+      const path = `${(value.language_code as string) || "en"}/${crypto.randomUUID()}.jpg`;
+      const { error } = await supabase.storage.from("video-banners").upload(path, blob, { upsert: false, contentType: blob.type || "image/jpeg" });
       if (error) throw error;
       set("banner_path", path);
       toast.success("Banner uploaded");
@@ -535,6 +536,20 @@ function VideoForm({ value, onChange }: { value: Record<string, unknown>; onChan
   const bannerPreviewUrl = value.banner_path
     ? supabase.storage.from("video-banners").getPublicUrl(value.banner_path as string).data.publicUrl
     : null;
+
+  // Selecting a file (or choosing to re-adjust the current banner) opens the
+  // mini editor first; the actual upload only happens once the admin confirms
+  // the crop/zoom, via onBannerUpload above.
+  const openBannerEditorForFile = (file: File) => {
+    setBannerEditor({ url: URL.createObjectURL(file), crossOrigin: false, revoke: true });
+  };
+  const openBannerEditorForCurrent = () => {
+    if (bannerPreviewUrl) setBannerEditor({ url: bannerPreviewUrl, crossOrigin: true, revoke: false });
+  };
+  const closeBannerEditor = () => {
+    if (bannerEditor?.revoke) URL.revokeObjectURL(bannerEditor.url);
+    setBannerEditor(null);
+  };
 
   const onTranscribe = async () => {
     if (!value.video_path) { toast.error("Upload a video first"); return; }
@@ -604,17 +619,40 @@ function VideoForm({ value, onChange }: { value: Record<string, unknown>; onChan
 
       <div className="rounded-md border p-3 bg-muted/30 grid gap-2">
         <Label>Banner image</Label>
-        <Input type="file" accept="image/*" disabled={uploadingBanner} onChange={(e) => { const f = e.target.files?.[0]; if (f) onBannerUpload(f); }} />
+        <Input
+          type="file"
+          accept="image/*"
+          disabled={uploadingBanner}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) openBannerEditorForFile(f);
+            e.target.value = "";
+          }}
+        />
         {bannerPreviewUrl ? (
-          <div className="relative aspect-video rounded-md overflow-hidden bg-muted">
-            <img src={bannerPreviewUrl} alt="Banner preview" className="w-full h-full object-cover" />
-          </div>
+          <>
+            <div className="relative aspect-video rounded-md overflow-hidden bg-muted">
+              <img src={bannerPreviewUrl} alt="Banner preview" className="w-full h-full object-cover" />
+            </div>
+            <Button type="button" size="sm" variant="outline" className="w-fit" disabled={uploadingBanner} onClick={openBannerEditorForCurrent}>
+              Adjust crop
+            </Button>
+          </>
         ) : (
-          <p className="text-xs text-muted-foreground">JPG or PNG recommended. Shown on the videos page as the video thumbnail.</p>
+          <p className="text-xs text-muted-foreground">JPG or PNG recommended. You'll be able to pan & zoom it before it uploads. Shown on the videos page as the video thumbnail.</p>
         )}
         {value.banner_path ? <p className="text-xs text-muted-foreground">Uploaded: {value.banner_path as string}</p> : null}
         {uploadingBanner && <p className="text-xs">Uploading banner…</p>}
       </div>
+
+      {bannerEditor && (
+        <BannerEditorDialog
+          imageUrl={bannerEditor.url}
+          crossOrigin={bannerEditor.crossOrigin}
+          onCancel={closeBannerEditor}
+          onSave={(blob) => { closeBannerEditor(); onBannerUpload(blob); }}
+        />
+      )}
 
       <div className="rounded-md border p-3 bg-muted/30 grid gap-2">
         <Label>Video file</Label>
