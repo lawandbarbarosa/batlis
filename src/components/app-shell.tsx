@@ -13,9 +13,10 @@ import { toast } from "sonner";
 interface Props {
   children: React.ReactNode;
   activeLang?: string | null;
+  showEmail?: boolean;
 }
 
-export function AppShell({ children, activeLang }: Props) {
+export function AppShell({ children, activeLang, showEmail = false }: Props) {
   const { t, dialect } = useDialect();
   const dir = dialect === "english" ? "ltr" : "rtl";
   const router = useRouter();
@@ -132,7 +133,7 @@ export function AppShell({ children, activeLang }: Props) {
                 <DialectToggle />
               </div>
               <div className="mt-auto pt-4 border-t border-border/60 space-y-3">
-                {email && <div className="text-xs text-muted-foreground truncate">{email}</div>}
+                {showEmail && email && <div className="text-xs text-muted-foreground truncate">{email}</div>}
                 <Button variant="outline" className="w-full" onClick={onSignOut}>
                   <LogOut className="h-4 w-4 ml-2" />
                   {t("sign_out")}
@@ -141,7 +142,7 @@ export function AppShell({ children, activeLang }: Props) {
             </SheetContent>
           </Sheet>
         </div>
-        {email && (
+        {showEmail && email && (
           <div className="mx-auto max-w-7xl px-4 sm:px-6 pb-2 text-xs text-muted-foreground truncate hidden lg:block">
             {email}
           </div>
