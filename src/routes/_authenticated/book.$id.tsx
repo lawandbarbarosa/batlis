@@ -30,13 +30,16 @@ interface WordHighlight {
 }
 
 interface BookParagraph {
-  text: string;
+  type?: "paragraph" | "image";
+  text?: string;
   ku_sorani?: string;
   ku_badini?: string;
   highlights?: WordHighlight[];
+  image_path?: string;
+  caption?: string;
 }
 
-function tokenizeWords(text: string): string[] {
+function tokenizeWords(text?: string): string[] {
   return (text || "").split(/\s+/).filter(Boolean);
 }
 
@@ -154,21 +157,35 @@ function BookView() {
 
         <p className="text-xs text-muted-foreground border-t pt-4">{t("tap_word_hint")}</p>
 
-        {/* Paragraphs */}
+        {/* Content: paragraphs and any inline images, in the order the admin placed them */}
         <div>
           {content.length === 0 ? (
             <p className="text-muted-foreground py-4">{t("no_words")}</p>
           ) : (
-            content.map((p, i) => (
-              <div key={i} className="py-4 border-b border-border/60 last:border-b-0">
-                <ParagraphText paragraph={p} dialect={dialect} t={t} />
-                {(p.ku_sorani || p.ku_badini) && (
-                  <div className="mt-2 text-sm font-kurdish text-muted-foreground break-words">
-                    {dialect === "sorani" ? p.ku_sorani : dialect === "badini" ? p.ku_badini : (p.ku_sorani ?? p.ku_badini)}
+            content.map((p, i) => {
+              if (p.type === "image") {
+                const url = p.image_path
+                  ? supabase.storage.from("book-images").getPublicUrl(p.image_path).data.publicUrl
+                  : null;
+                if (!url) return null;
+                return (
+                  <div key={i} className="py-4 border-b border-border/60 last:border-b-0">
+                    <img src={url} alt={p.caption || b.title} className="w-full rounded-lg object-contain" />
+                    {p.caption && <p className="mt-2 text-xs text-muted-foreground text-center break-words">{p.caption}</p>}
                   </div>
-                )}
-              </div>
-            ))
+                );
+              }
+              return (
+                <div key={i} className="py-4 border-b border-border/60 last:border-b-0">
+                  <ParagraphText paragraph={p} dialect={dialect} t={t} />
+                  {(p.ku_sorani || p.ku_badini) && (
+                    <div className="mt-2 text-sm font-kurdish text-muted-foreground break-words">
+                      {dialect === "sorani" ? p.ku_sorani : dialect === "badini" ? p.ku_badini : (p.ku_sorani ?? p.ku_badini)}
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
 
