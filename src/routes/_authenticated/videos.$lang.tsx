@@ -48,7 +48,7 @@ function Videos() {
               const thumbnail = getVideoThumbnail(v.banner_path, v.youtube_id);
               return (
               <Link key={v.id} to={`/video/${v.id}`} className="bento-card overflow-hidden group hover:scale-[1.02] transition-transform">
-                <div className="relative aspect-video bg-muted">
+                <div className="relative aspect-[4/3] bg-muted">
                   {thumbnail ? (
                     <img
                       src={thumbnail}
