@@ -29,10 +29,10 @@ function SettingsPage() {
     mutationFn: (d: "sorani" | "badini" | "english") => setDia({ data: { dialect: d } }),
   });
 
-  if (isLoading) return <AppShell><Loader2 className="h-6 w-6 animate-spin" /></AppShell>;
+  if (isLoading) return <AppShell showEmail><Loader2 className="h-6 w-6 animate-spin" /></AppShell>;
 
   return (
-    <AppShell activeLang={data?.activeLang ?? undefined}>
+    <AppShell activeLang={data?.activeLang ?? undefined} showEmail>
       <div className="max-w-2xl mx-auto space-y-8">
         <h1 className="font-display text-3xl font-bold">{t("settings")}</h1>
 
