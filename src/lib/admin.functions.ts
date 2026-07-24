@@ -300,11 +300,19 @@ export const adminUpsertVideo = createServerFn({ method: "POST" })
     return { video: saved };
   });
 
+// A content block is either a text paragraph or an inline image, distinguished
+// by `type` (existing rows predate this field and are treated as "paragraph").
+// All fields are null/undefined-tolerant for the same reason as nullableStr
+// above, and every field is present on every block so the shape stays uniform
+// regardless of which kind it is.
 const bookParagraphSchema = z.object({
-  text: z.string(),
+  type: z.enum(["paragraph", "image"]).nullish().transform((v) => v ?? "paragraph"),
+  text: nullableStr(20000),
   ku_sorani: z.string().optional().nullable(),
   ku_badini: z.string().optional().nullable(),
   highlights: z.array(highlightSchema).optional().default([]),
+  image_path: nullableStr(500),
+  caption: nullableStr(300),
 });
 
 export const adminUpsertBook = createServerFn({ method: "POST" })
@@ -497,6 +505,91 @@ export const generateWordMeaning = createServerFn({ method: "POST" })
       meaning_ku_sorani: (parsed.meaning_ku_sorani ?? "").trim(),
       meaning_ku_badini: (parsed.meaning_ku_badini ?? "").trim(),
     };
+  });
+
+/* -------------------- AI: READ UPLOADED BOOK PAGES (OCR via vision model) -------------------- */
+// Cloudflare Workers has no Buffer global, so base64-encode with the standard
+// Web APIs (btoa is available there, same as in browsers).
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+export const extractBookPages = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ paths: z.array(z.string().min(1).max(500)).min(1).max(10) }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context);
+    const key = process.env.LOVABLE_API_KEY;
+    if (!key) throw new Error("Lovable AI is not connected");
+
+    const imageParts: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+    for (const path of data.paths) {
+      const { data: file, error } = await context.supabase.storage.from("book-pages").download(path);
+      if (error || !file) throw new Error(error?.message || `Could not read uploaded page: ${path}`);
+      const buf = await file.arrayBuffer();
+      const base64 = arrayBufferToBase64(buf);
+      imageParts.push({ type: "image_url", image_url: { url: `data:${file.type || "image/jpeg"};base64,${base64}` } });
+    }
+
+    const body = {
+      model: "google/gemini-3-flash-preview",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You transcribe photographed or scanned book pages for a language-learning app. Read only the body text of each page — skip page numbers, running headers/footers, and watermarks. Preserve paragraph breaks as separate items when a page has more than one paragraph. If a page is a picture/illustration with no meaningful body text, return an empty string for it. Return ONLY strict JSON.",
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Transcribe each of these ${data.paths.length} book page image(s), in the order given. Return JSON of shape {"pages":[{"i":1,"text":"..."},{"i":1,"text":"(second paragraph on page 1, if any)"},...]} — you may emit more than one entry for the same page index "i" if that page has multiple paragraphs, in reading order. Use 1-based index i matching the image order.`,
+            },
+            ...imageParts,
+          ],
+        },
+      ],
+      response_format: { type: "json_object" },
+    };
+
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": key },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      if (res.status === 429) throw new Error("AI rate limit reached. Try again shortly.");
+      if (res.status === 402) throw new Error("AI credits exhausted. Add credits in your workspace.");
+      throw new Error(`Reading pages failed [${res.status}]: ${t}`);
+    }
+    const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const content = json.choices?.[0]?.message?.content ?? "{}";
+    let parsed: { pages?: Array<{ i?: number; text?: string }> } = {};
+    try { parsed = JSON.parse(content); } catch { throw new Error("AI returned invalid JSON"); }
+
+    // Group by page index so a page with several paragraphs yields several
+    // strings, in order; a page the model left out entirely comes back as [].
+    const byIdx = new Map<number, string[]>();
+    for (const p of parsed.pages ?? []) {
+      if (typeof p.i !== "number") continue;
+      const text = (p.text ?? "").trim();
+      if (!text) continue;
+      const arr = byIdx.get(p.i) ?? [];
+      arr.push(text);
+      byIdx.set(p.i, arr);
+    }
+    const paragraphsByPage = data.paths.map((_, i) => byIdx.get(i + 1) ?? []);
+    return { paragraphsByPage };
   });
 
 export const adminDeleteVideo = createServerFn({ method: "POST" })
