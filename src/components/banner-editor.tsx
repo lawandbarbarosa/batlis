@@ -5,14 +5,14 @@ import { Slider } from "@/components/ui/slider";
 import { Loader2, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
-// Preview frame size (kept at 16:9 to match how the banner is actually displayed
-// on the videos page, i.e. an `aspect-video` box with `object-cover`).
+// Preview frame size (kept at 4:3 to match how the banner is actually displayed
+// on the videos page, i.e. an `aspect-[4/3]` box with `object-cover`).
 const FRAME_W = 480;
-const FRAME_H = 270;
+const FRAME_H = 360;
 // Exported image resolution. Higher than the preview frame so the uploaded
 // banner still looks sharp on larger screens.
 const OUTPUT_W = 1280;
-const OUTPUT_H = 720;
+const OUTPUT_H = 960;
 
 interface BannerEditorDialogProps {
   /** URL of the image to edit — either a local object URL or a remote (public) URL. */
