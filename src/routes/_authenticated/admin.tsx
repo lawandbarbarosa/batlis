@@ -631,7 +631,7 @@ function VideoForm({ value, onChange }: { value: Record<string, unknown>; onChan
         />
         {bannerPreviewUrl ? (
           <>
-            <div className="relative aspect-video rounded-md overflow-hidden bg-muted">
+            <div className="relative aspect-[4/3] rounded-md overflow-hidden bg-muted">
               <img src={bannerPreviewUrl} alt="Banner preview" className="w-full h-full object-cover" />
             </div>
             <Button type="button" size="sm" variant="outline" className="w-fit" disabled={uploadingBanner} onClick={openBannerEditorForCurrent}>
