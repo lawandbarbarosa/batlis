@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState, useEffect } from "react";
@@ -109,7 +109,7 @@ function LessonRunner() {
     return (
       <AppShell activeLang={langCode}>
         <div className="max-w-3xl mx-auto py-6">
-          <button onClick={() => navigate({ to: `/course/${lesson.course_id}` })} className="text-sm text-muted-foreground hover:text-foreground mb-4">← {t("back_to_course")}</button>
+          <button onClick={() => navigate({ to: "/course/$id", params: { id: lesson.course_id } })} className="text-sm text-muted-foreground hover:text-foreground mb-4">← {t("back_to_course")}</button>
           <h1 className="font-display text-3xl sm:text-4xl font-bold">{title}</h1>
           <div className="mt-8 bento-card p-5 sm:p-8 whitespace-pre-wrap leading-loose">
             {grammar}
@@ -293,7 +293,7 @@ function LessonRunner() {
 
         <div className="mt-8 flex justify-center gap-3">
           {result?.passed ? (
-            <Button asChild size="lg" className="gradient-brand"><a href={`/course/${lesson.course_id}`}><ArrowLeft className="ml-2 h-4 w-4" />{t("continue")}</a></Button>
+            <Button asChild size="lg" className="gradient-brand"><Link to="/course/$id" params={{ id: lesson.course_id }}><ArrowLeft className="ml-2 h-4 w-4" />{t("continue")}</Link></Button>
           ) : (
             <Button size="lg" onClick={() => { setStep("intro"); setIdx(0); setAnswers({}); setResult(null); }} className="gradient-brand">
               <RotateCw className="ml-2 h-4 w-4" />
