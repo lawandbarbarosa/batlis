@@ -44,7 +44,7 @@ function Books() {
             {(data?.books ?? []).map((b) => {
               const cover = getBookCover(b.cover_path);
               return (
-                <Link key={b.id} to={`/book/${b.id}`} className="bento-card overflow-hidden hover:scale-[1.02] transition-transform">
+                <Link key={b.id} to="/book/$id" params={{ id: b.id }} className="bento-card overflow-hidden hover:scale-[1.02] transition-transform">
                   <div className="relative aspect-[3/4] bg-muted">
                     {cover ? (
                       <img
