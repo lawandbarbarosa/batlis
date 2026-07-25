@@ -7,6 +7,7 @@ import { useDialect } from "@/hooks/use-dialect";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { FlagIcon } from "@/components/flag-icon";
 import { Loader2, Flame, Trophy, BookOpen, PlayCircle, Library, Target, Sparkles, ArrowLeft } from "lucide-react";
 
 // Languages with real authored lesson/vocab/video content. Everything else in
@@ -78,7 +79,7 @@ function Dashboard() {
                 }`}
                 title={l.name_en}
               >
-                <span className="mr-1">{l.flag_emoji}</span>
+                <span className="mr-1"><FlagIcon code={l.code} /></span>
                 {nameFor(l)}
               </button>
             ))}
@@ -91,7 +92,7 @@ function Dashboard() {
                   title={l.name_en}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg squircle text-sm border border-border bg-muted text-muted-foreground cursor-not-allowed opacity-70"
                 >
-                  <span className="mr-0.5 grayscale">{l.flag_emoji}</span>
+                  <span className="mr-0.5 grayscale"><FlagIcon code={l.code} /></span>
                   {nameFor(l)}
                   <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">
                     {t("coming_soon")}
