@@ -165,5 +165,5 @@ function CourseCardItem({ course, cefr, dialect, t, disabled }: {
     </div>
   );
 
-  return disabled ? inner : <Link to={`/course/${course.id}`}>{inner}</Link>;
+  return disabled ? inner : <Link to="/course/$id" params={{ id: course.id }}>{inner}</Link>;
 }
