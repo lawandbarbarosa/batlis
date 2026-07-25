@@ -47,7 +47,7 @@ function Videos() {
             {(data?.videos ?? []).map((v) => {
               const thumbnail = getVideoThumbnail(v.banner_path, v.youtube_id);
               return (
-              <Link key={v.id} to={`/video/${v.id}`} className="bento-card overflow-hidden group hover:scale-[1.02] transition-transform">
+              <Link key={v.id} to="/video/$id" params={{ id: v.id }} className="bento-card overflow-hidden group hover:scale-[1.02] transition-transform">
                 <div className="relative aspect-[4/3] bg-muted">
                   {thumbnail ? (
                     <img
