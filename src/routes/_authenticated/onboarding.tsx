@@ -27,7 +27,7 @@ function Onboarding() {
     mutationFn: (language: "en" | "de" | "ar" | "ko") => setLang({ data: { language } }),
     onSuccess: (_r, language) => {
       qc.invalidateQueries();
-      navigate({ to: `/placement/${language}` });
+      navigate({ to: "/placement/$lang", params: { lang: language } });
     },
   });
 
