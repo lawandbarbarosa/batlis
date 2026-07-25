@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { AppShell } from "@/components/app-shell";
@@ -361,11 +361,19 @@ function blankStep(type: LessonStep["type"]): LessonStep {
   return { type, text: "" };
 }
 
+const JSON_STEPS_EXAMPLE = `[
+  { "type": "word", "target": "Hello", "kurdish_sorani": "", "kurdish_badini": "" },
+  { "type": "sentence", "target": "Hello, my name is John." },
+  { "type": "image", "url": "https://.../hello.png", "caption": "optional" },
+  { "type": "tip", "text": "optional grammar aside" }
+]`;
+
 function LessonStepsEditor({ value, onChange, sourceLanguage }: { value: LessonStep[]; onChange: (v: LessonStep[]) => void; sourceLanguage: string }) {
   const steps = value ?? [];
   const translate = useServerFn(translateLessonWords);
   const [translatingAll, setTranslatingAll] = useState(false);
   const [translatingIdx, setTranslatingIdx] = useState<number | null>(null);
+  const [mode, setMode] = useState<"builder" | "json">("builder");
 
   const update = (i: number, patch: Record<string, unknown>) => {
     const next = steps.slice();
@@ -429,74 +437,104 @@ function LessonStepsEditor({ value, onChange, sourceLanguage }: { value: LessonS
 
   return (
     <div className="grid gap-2">
-      {steps.length === 0 && (
-        <p className="text-xs text-muted-foreground">
-          No steps yet — learners will go straight from the intro to the quiz. Add a word or sentence below to build a step-by-step walkthrough first.
-        </p>
-      )}
-      {steps.some(isWordOrSentence) && (
-        <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="inline-flex rounded-md border p-0.5 bg-muted/40">
+          <Button type="button" size="sm" variant={mode === "builder" ? "default" : "ghost"} className="h-7 px-2.5" onClick={() => setMode("builder")}>Builder</Button>
+          <Button type="button" size="sm" variant={mode === "json" ? "default" : "ghost"} className="h-7 px-2.5" onClick={() => setMode("json")}>Paste JSON</Button>
+        </div>
+        {steps.some(isWordOrSentence) && (
           <Button type="button" variant="secondary" size="sm" onClick={translateAllMissing} disabled={translatingAll}>
             {translatingAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
             Translate all with AI
           </Button>
-        </div>
-      )}
-      {steps.map((s, i) => (
-        <div key={i} className="rounded-md border p-3 bg-muted/20">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{i + 1}. {s.type}</span>
-            <div className="flex gap-1">
-              <Button type="button" size="icon" variant="ghost" className="h-6 w-6" onClick={() => move(i, -1)} disabled={i === 0}><ChevronUp className="h-3 w-3" /></Button>
-              <Button type="button" size="icon" variant="ghost" className="h-6 w-6" onClick={() => move(i, 1)} disabled={i === steps.length - 1}><ChevronDown className="h-3 w-3" /></Button>
-              <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => remove(i)}><Trash2 className="h-3 w-3" /></Button>
-            </div>
-          </div>
-
-          {(s.type === "word" || s.type === "sentence") && (
-            <div className="grid gap-2">
-              <Input
-                dir="ltr"
-                placeholder={s.type === "word" ? "Word, e.g. apple" : "Sentence, e.g. I eat an apple every day."}
-                value={s.target}
-                onChange={(e) => update(i, { target: e.target.value })}
-              />
-              <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
-                <Input dir="rtl" placeholder="Kurdish (Sorani)" value={s.kurdish_sorani ?? ""} onChange={(e) => update(i, { kurdish_sorani: e.target.value })} />
-                <Input dir="rtl" placeholder="Kurdish (Badini)" value={s.kurdish_badini ?? ""} onChange={(e) => update(i, { kurdish_badini: e.target.value })} />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="h-9 w-9 shrink-0"
-                  title="Translate this with AI"
-                  onClick={() => translateStep(i)}
-                  disabled={translatingIdx === i || !s.target.trim()}
-                >
-                  {translatingIdx === i ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                </Button>
-              </div>
-              <Input placeholder="Audio URL (optional — leave blank to use text-to-speech)" value={s.audio_url ?? ""} onChange={(e) => update(i, { audio_url: e.target.value })} />
-            </div>
-          )}
-          {s.type === "image" && (
-            <div className="grid gap-2">
-              <Input placeholder="Image URL" value={s.url} onChange={(e) => update(i, { url: e.target.value })} />
-              <Input placeholder="Caption (optional)" value={s.caption ?? ""} onChange={(e) => update(i, { caption: e.target.value })} />
-            </div>
-          )}
-          {s.type === "tip" && (
-            <Textarea placeholder="A short note or grammar aside" value={s.text} onChange={(e) => update(i, { text: e.target.value })} />
-          )}
-        </div>
-      ))}
-
-      <div className="flex flex-wrap gap-2 mt-1">
-        <Button type="button" variant="outline" size="sm" onClick={() => add("word")}>+ Word</Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => add("sentence")}>+ Sentence</Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => add("image")}>+ Image</Button>
-        <Button type="button" variant="outline" size="sm" onClick={() => add("tip")}>+ Tip</Button>
+        )}
       </div>
+
+      {mode === "json" ? (
+        <div className="grid gap-1.5">
+          <Textarea
+            rows={14}
+            className="font-mono text-xs"
+            dir="ltr"
+            value={JSON.stringify(steps, null, 2)}
+            onChange={(e) => {
+              try {
+                const parsed = JSON.parse(e.target.value);
+                if (Array.isArray(parsed)) onChange(parsed);
+              } catch {
+                /* keep typing */
+              }
+            }}
+          />
+          <p className="text-xs text-muted-foreground">
+            Paste an array of step objects. Leave <code>kurdish_sorani</code> / <code>kurdish_badini</code> blank and use "Translate all with AI" (above) to fill them in.
+          </p>
+          <pre className="text-[11px] leading-snug bg-muted/40 rounded-md p-2 overflow-x-auto">{JSON_STEPS_EXAMPLE}</pre>
+        </div>
+      ) : (
+        <>
+          {steps.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No steps yet — learners will go straight from the intro to the quiz. Add a word or sentence below to build a step-by-step walkthrough first.
+            </p>
+          )}
+          {steps.map((s, i) => (
+            <div key={i} className="rounded-md border p-3 bg-muted/20">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{i + 1}. {s.type}</span>
+                <div className="flex gap-1">
+                  <Button type="button" size="icon" variant="ghost" className="h-6 w-6" onClick={() => move(i, -1)} disabled={i === 0}><ChevronUp className="h-3 w-3" /></Button>
+                  <Button type="button" size="icon" variant="ghost" className="h-6 w-6" onClick={() => move(i, 1)} disabled={i === steps.length - 1}><ChevronDown className="h-3 w-3" /></Button>
+                  <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => remove(i)}><Trash2 className="h-3 w-3" /></Button>
+                </div>
+              </div>
+
+              {(s.type === "word" || s.type === "sentence") && (
+                <div className="grid gap-2">
+                  <Input
+                    dir="ltr"
+                    placeholder={s.type === "word" ? "Word, e.g. apple" : "Sentence, e.g. I eat an apple every day."}
+                    value={s.target}
+                    onChange={(e) => update(i, { target: e.target.value })}
+                  />
+                  <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                    <Input dir="rtl" placeholder="Kurdish (Sorani)" value={s.kurdish_sorani ?? ""} onChange={(e) => update(i, { kurdish_sorani: e.target.value })} />
+                    <Input dir="rtl" placeholder="Kurdish (Badini)" value={s.kurdish_badini ?? ""} onChange={(e) => update(i, { kurdish_badini: e.target.value })} />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="h-9 w-9 shrink-0"
+                      title="Translate this with AI"
+                      onClick={() => translateStep(i)}
+                      disabled={translatingIdx === i || !s.target.trim()}
+                    >
+                      {translatingIdx === i ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
+                  <Input placeholder="Audio URL (optional — leave blank to use text-to-speech)" value={s.audio_url ?? ""} onChange={(e) => update(i, { audio_url: e.target.value })} />
+                </div>
+              )}
+              {s.type === "image" && (
+                <div className="grid gap-2">
+                  <Input placeholder="Image URL" value={s.url} onChange={(e) => update(i, { url: e.target.value })} />
+                  <Input placeholder="Caption (optional)" value={s.caption ?? ""} onChange={(e) => update(i, { caption: e.target.value })} />
+                </div>
+              )}
+              {s.type === "tip" && (
+                <Textarea placeholder="A short note or grammar aside" value={s.text} onChange={(e) => update(i, { text: e.target.value })} />
+              )}
+            </div>
+          ))}
+
+          <div className="flex flex-wrap gap-2 mt-1">
+            <Button type="button" variant="outline" size="sm" onClick={() => add("word")}>+ Word</Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => add("sentence")}>+ Sentence</Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => add("image")}>+ Image</Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => add("tip")}>+ Tip</Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -659,6 +697,7 @@ function VideosTab() {
         <div className="flex-1" />
         <Button onClick={() => { setEditing({ language_code: lang, level_cefr: "A1", category: null, title: "", video_path: "", banner_path: "", youtube_id: "", transcript_json: [] }); setOpen(true); }}>{t("add_new")}</Button>
       </div>
+      <VideoWordsSummary videos={q.data?.videos ?? []} />
       <div className="grid gap-2">
         {(q.data?.videos ?? []).length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
         {(q.data?.videos ?? []).map((v) => (
@@ -690,6 +729,66 @@ function VideosTab() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// Small stats strip above the video list: total transcript word count and
+// highlighted-word count across every video currently loaded (i.e. for the
+// selected language), plus an expandable list of the highlights themselves.
+// Pulled straight out of transcript_json — no extra query needed.
+function VideoWordsSummary({ videos }: { videos: Array<{ id: string; title: string; transcript_json: unknown }> }) {
+  const [expanded, setExpanded] = useState(false);
+  const { totalWords, highlights } = useMemo(() => {
+    let totalWords = 0;
+    const highlights: Array<WordHighlight & { videoTitle: string }> = [];
+    for (const v of videos) {
+      const lines = (v.transcript_json as TranscriptLine[]) ?? [];
+      for (const line of lines) {
+        totalWords += tokenizeWords(line.en).length;
+        for (const h of line.highlights ?? []) highlights.push({ ...h, videoTitle: v.title });
+      }
+    }
+    return { totalWords, highlights };
+  }, [videos]);
+
+  if (videos.length === 0) return null;
+
+  return (
+    <Card className="mb-4">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h3 className="font-display font-semibold">Words</h3>
+          <div className="flex gap-4 text-sm">
+            <span><span className="font-semibold">{totalWords}</span> <span className="text-muted-foreground">total words</span></span>
+            <span><span className="font-semibold">{highlights.length}</span> <span className="text-muted-foreground">highlighted</span></span>
+          </div>
+        </div>
+        {highlights.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:text-foreground mt-2 underline decoration-dotted"
+              onClick={() => setExpanded((e) => !e)}
+            >
+              {expanded ? "Hide highlighted words" : `Show highlighted words (${highlights.length})`}
+            </button>
+            {expanded && (
+              <div className="mt-3 grid gap-1.5 max-h-64 overflow-y-auto pr-1">
+                {highlights.map((h, i) => (
+                  <div key={`${h.id}-${i}`} className="flex items-center justify-between gap-3 text-sm rounded-md border px-2.5 py-1.5 bg-muted/20">
+                    <div className="min-w-0 flex items-baseline gap-2">
+                      <span dir="ltr" className="font-medium">{h.word}</span>
+                      <span dir="rtl" className="text-muted-foreground truncate">{h.meaning_ku_sorani || h.meaning_en || "—"}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0 truncate max-w-[35%]">{h.videoTitle}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
