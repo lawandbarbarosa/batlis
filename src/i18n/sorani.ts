@@ -73,6 +73,7 @@ const s = {
   lesson: "وانە",
   grammar: "ڕێزمان",
   dialogue: "دیالۆگ",
+  words_sentences: "وشە و ڕستەکان",
   exercises: "ڕاهێنانەکان",
   quiz: "تاقیکردنەوە",
   pass_threshold: "پێویستە ٧٠٪ بەدەست بهێنیت بۆ کردنەوەی وانەی داهاتوو",
