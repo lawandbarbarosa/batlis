@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useDialect } from "@/hooks/use-dialect";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { FlagIcon } from "@/components/flag-icon";
 import {
   BookOpen,
   Target,
@@ -50,10 +51,10 @@ function Landing() {
   ];
 
   const languages = [
-    { flag: "🇬🇧", name: t("lang_english"), desc: t("lang_english_desc") },
-    { flag: "🇩🇪", name: t("lang_german"), desc: t("lang_german_desc") },
-    { flag: "🇸🇦", name: t("lang_arabic"), desc: t("lang_arabic_desc") },
-    { flag: "🇰🇷", name: t("lang_korean"), desc: t("lang_korean_desc") },
+    { code: "en", name: t("lang_english"), desc: t("lang_english_desc") },
+    { code: "de", name: t("lang_german"), desc: t("lang_german_desc") },
+    { code: "ar", name: t("lang_arabic"), desc: t("lang_arabic_desc") },
+    { code: "ko", name: t("lang_korean"), desc: t("lang_korean_desc") },
   ];
 
   const features = [
@@ -170,10 +171,10 @@ function Landing() {
           </div>
 
           <div className="mt-14 flex flex-wrap justify-center gap-3 sm:gap-4 text-5xl sm:text-6xl">
-            <span>🇬🇧</span>
-            <span>🇩🇪</span>
-            <span>🇸🇦</span>
-            <span>🇰🇷</span>
+            <FlagIcon code="en" />
+            <FlagIcon code="de" />
+            <FlagIcon code="ar" />
+            <FlagIcon code="ko" />
           </div>
         </div>
       </section>
@@ -201,7 +202,9 @@ function Landing() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {languages.map((l) => (
             <div key={l.name} className="bento-card p-6 text-center">
-              <div className="text-5xl mb-4">{l.flag}</div>
+              <div className="text-5xl mb-4">
+                <FlagIcon code={l.code} />
+              </div>
               <h3 className="font-display text-lg font-semibold mb-2">{l.name}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed">{l.desc}</p>
             </div>
