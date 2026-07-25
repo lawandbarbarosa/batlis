@@ -1,14 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { z } from "zod";
 import { getLesson, submitLessonQuiz } from "@/lib/learn.functions";
 import { useDialect } from "@/hooks/use-dialect";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, CheckCircle2, XCircle, ArrowLeft, RotateCw } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ArrowLeft, RotateCw, Volume2 } from "lucide-react";
 
 const paramsSchema = z.object({ id: z.string().uuid() });
 
@@ -17,7 +17,23 @@ export const Route = createFileRoute("/_authenticated/lesson/$id")({
   component: LessonRunner,
 });
 
-type Step = "intro" | "exercises" | "result";
+type Step = "intro" | "words" | "exercises" | "result";
+
+type LessonStep =
+  | { type: "word"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string }
+  | { type: "sentence"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string }
+  | { type: "image"; url: string; caption?: string }
+  | { type: "tip"; text: string };
+
+const TTS_LOCALE: Record<string, string> = { en: "en-US", de: "de-DE", ar: "ar-SA", ko: "ko-KR" };
+
+function speakText(text: string, langCode: string) {
+  if (typeof window === "undefined" || !text) return;
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = TTS_LOCALE[langCode] ?? "en-US";
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utter);
+}
 
 function LessonRunner() {
   const { id } = Route.useParams();
@@ -33,6 +49,7 @@ function LessonRunner() {
   });
 
   const [step, setStep] = useState<Step>("intro");
+  const [wordIdx, setWordIdx] = useState(0);
   const [idx, setIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<{ score: number; passed: boolean; correct: number; total: number } | null>(null);
@@ -51,6 +68,24 @@ function LessonRunner() {
       qc.invalidateQueries();
     },
   });
+
+  const steps: LessonStep[] = Array.isArray(data?.lesson?.steps_json) ? (data?.lesson?.steps_json as LessonStep[]) : [];
+  const wordLangCode: string = (data?.lesson as unknown as { levels?: { language_code?: string } } | undefined)?.levels?.language_code ?? "en";
+  const currentWordStep = steps[wordIdx];
+
+  // Auto-play the pronunciation the moment a word/sentence step comes into view.
+  useEffect(() => {
+    if (step !== "words" || !currentWordStep) return;
+    if (currentWordStep.type === "word" || currentWordStep.type === "sentence") {
+      if (currentWordStep.audio_url) {
+        const audio = new Audio(currentWordStep.audio_url);
+        audio.play().catch(() => { /* autoplay may be blocked; the speaker button still works */ });
+      } else {
+        speakText(currentWordStep.target, wordLangCode);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, wordIdx]);
 
   if (isLoading || !data) {
     return <AppShell><div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin" /></div></AppShell>;
@@ -95,9 +130,77 @@ function LessonRunner() {
             </div>
           )}
           <div className="mt-8 flex justify-end">
-            <Button size="lg" className="gradient-brand" onClick={() => setStep("exercises")} disabled={exercises.length === 0}>
-              <ArrowLeft className="ml-2 h-4 w-4" />
-              {t("exercises")} ({exercises.length})
+            {steps.length > 0 ? (
+              <Button size="lg" className="gradient-brand" onClick={() => { setWordIdx(0); setStep("words"); }}>
+                <ArrowLeft className="ml-2 h-4 w-4" />
+                {t("words_sentences")} ({steps.length})
+              </Button>
+            ) : (
+              <Button size="lg" className="gradient-brand" onClick={() => setStep("exercises")} disabled={exercises.length === 0}>
+                <ArrowLeft className="ml-2 h-4 w-4" />
+                {t("exercises")} ({exercises.length})
+              </Button>
+            )}
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (step === "words") {
+    const s = currentWordStep;
+    const isLast = wordIdx === steps.length - 1;
+    const goNext = () => { if (isLast) setStep("exercises"); else setWordIdx((i) => i + 1); };
+    return (
+      <AppShell activeLang={langCode}>
+        <div className="max-w-2xl mx-auto py-6">
+          <div className="mb-6">
+            <div className="flex justify-between text-sm text-muted-foreground mb-2">
+              <span>{wordIdx + 1} {t("of")} {steps.length}</span>
+              <span>{t("words_sentences")}</span>
+            </div>
+            <Progress value={((wordIdx + 1) / steps.length) * 100} />
+          </div>
+
+          <div className="bento-card p-6 sm:p-10 text-center min-h-[280px] flex flex-col justify-center">
+            {(s?.type === "word" || s?.type === "sentence") && (
+              <>
+                <div className="flex items-center justify-center gap-3 flex-wrap">
+                  <div className={s.type === "word" ? "text-4xl sm:text-5xl font-display font-bold" : "text-2xl sm:text-3xl font-display font-semibold"} dir="ltr">
+                    {s.target}
+                  </div>
+                  <button
+                    onClick={() => (s.audio_url ? new Audio(s.audio_url).play().catch(() => {}) : speakText(s.target, wordLangCode))}
+                    className="p-2 rounded-full hover:bg-accent"
+                    title={t("play_audio")}
+                  >
+                    <Volume2 className="h-5 w-5 text-primary-ink" />
+                  </button>
+                </div>
+                {(dialect === "badini" ? s.kurdish_badini : s.kurdish_sorani) && (
+                  <div className="mt-4 text-2xl font-kurdish" dir="rtl">
+                    {dialect === "badini" ? s.kurdish_badini : s.kurdish_sorani}
+                  </div>
+                )}
+              </>
+            )}
+            {s?.type === "image" && (
+              <div>
+                <img src={s.url} alt={s.caption ?? ""} className="max-h-64 mx-auto rounded-xl squircle object-contain" />
+                {s.caption && <div className="mt-3 text-sm text-muted-foreground">{s.caption}</div>}
+              </div>
+            )}
+            {s?.type === "tip" && (
+              <div className="text-lg leading-relaxed whitespace-pre-wrap">{s.text}</div>
+            )}
+          </div>
+
+          <div className="mt-6 flex justify-between">
+            <Button variant="outline" onClick={() => setWordIdx((i) => Math.max(0, i - 1))} disabled={wordIdx === 0}>
+              {t("back")}
+            </Button>
+            <Button onClick={goNext} className="gradient-brand" disabled={isLast && exercises.length === 0}>
+              {isLast ? `${t("exercises")} (${exercises.length})` : t("next")}
             </Button>
           </div>
         </div>
