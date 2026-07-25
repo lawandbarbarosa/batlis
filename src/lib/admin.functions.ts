@@ -128,11 +128,13 @@ export const adminUpsertCourse = createServerFn({ method: "POST" })
       description_sorani: z.string().max(1000).optional(),
       description_badini: z.string().max(1000).optional(),
       description_en: z.string().max(1000).optional(),
+      cover_image_path: z.string().max(500).optional().or(z.literal("")),
     }).parse(d),
   )
   .handler(async ({ context, data }) => {
     await assertAdmin(context);
-    const { data: saved, error } = await context.supabase.from("courses").upsert(data).select().single();
+    const row = { ...data, cover_image_path: data.cover_image_path || null };
+    const { data: saved, error } = await context.supabase.from("courses").upsert(row).select().single();
     if (error) throw new Error(error.message);
     return { course: saved };
   });
@@ -146,6 +148,32 @@ export const adminDeleteCourse = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+const lessonStepSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("word"),
+    target: z.string().min(1).max(200),
+    kurdish_sorani: z.string().max(200).optional(),
+    kurdish_badini: z.string().max(200).optional(),
+    audio_url: z.string().max(500).optional().or(z.literal("")),
+  }),
+  z.object({
+    type: z.literal("sentence"),
+    target: z.string().min(1).max(500),
+    kurdish_sorani: z.string().max(500).optional(),
+    kurdish_badini: z.string().max(500).optional(),
+    audio_url: z.string().max(500).optional().or(z.literal("")),
+  }),
+  z.object({
+    type: z.literal("image"),
+    url: z.string().max(500),
+    caption: z.string().max(300).optional(),
+  }),
+  z.object({
+    type: z.literal("tip"),
+    text: z.string().min(1).max(1000),
+  }),
+]);
 
 export const adminUpsertLesson = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -164,7 +192,8 @@ export const adminUpsertLesson = createServerFn({ method: "POST" })
       grammar_md_sorani: z.string().max(20000).optional(),
       grammar_md_badini: z.string().max(20000).optional(),
       grammar_md_en: z.string().max(20000).optional(),
-      dialogue_json: z.array(z.object({ speaker: z.string(), line: z.string(), translation_ku: z.string().optional() })).default([]),
+      dialogue_json: z.array(z.object({ speaker: z.string(), text: z.string(), translation_sorani: z.string().optional(), translation_badini: z.string().optional() })).default([]),
+      steps_json: z.array(lessonStepSchema).default([]),
     }).parse(d),
   )
   .handler(async ({ context, data }) => {
