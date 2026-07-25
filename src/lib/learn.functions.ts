@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const langEnum = z.enum(["en", "de", "ar", "ko"]);
 const cefrEnum = z.enum(["A1", "A2", "B1", "B2", "C1", "C2"]);
+const videoCategoryEnum = z.enum(["podcast", "animation", "movie", "show", "talking", "music", "documentary", "news", "other"]);
 
 /* -------------------- DASHBOARD -------------------- */
 export const getDashboard = createServerFn({ method: "POST" })
@@ -365,10 +366,15 @@ export const reviewFlashcard = createServerFn({ method: "POST" })
 /* -------------------- VIDEOS -------------------- */
 export const getVideos = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ language: langEnum }).parse(d))
+  .inputValidator((d: unknown) => z.object({ language: langEnum, category: videoCategoryEnum.optional() }).parse(d))
   .handler(async ({ context, data }) => {
     const { supabase } = context;
-    const { data: videos } = await supabase.from("videos").select("id, youtube_id, banner_path, title, description, level_cefr, duration_seconds").eq("language_code", data.language).order("level_cefr");
+    let query = supabase
+      .from("videos")
+      .select("id, youtube_id, banner_path, title, description, level_cefr, duration_seconds, category")
+      .eq("language_code", data.language);
+    if (data.category) query = query.eq("category", data.category);
+    const { data: videos } = await query.order("level_cefr");
     return { videos: videos ?? [] };
   });
 
