@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { DialectToggle } from "@/components/dialect-toggle";
+import { FlagIcon } from "@/components/flag-icon";
 
 const searchSchema = z.object({
   mode: z.enum(["signin", "signup"]).optional().default("signin"),
@@ -107,8 +108,11 @@ function AuthPage() {
           <h2 className="font-display text-4xl font-bold leading-tight">{t("auth_welcome")}</h2>
           <p className="mt-3 text-primary-foreground/80 text-lg">{t("auth_welcome_sub")}</p>
         </div>
-        <div className="text-primary-foreground/50 text-sm relative z-10">
-          🇬🇧 🇩🇪 🇸🇦 🇰🇷
+        <div className="relative z-10 flex items-center gap-1.5 text-sm opacity-50">
+          <FlagIcon code="en" />
+          <FlagIcon code="de" />
+          <FlagIcon code="ar" />
+          <FlagIcon code="ko" />
         </div>
         <div className="absolute -bottom-20 -left-20 h-96 w-96 rounded-full bg-gold/20 blur-3xl" />
         <div className="absolute -top-20 -right-20 h-96 w-96 rounded-full bg-primary-glow/40 blur-3xl" />
