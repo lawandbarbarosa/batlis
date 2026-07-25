@@ -57,7 +57,7 @@ function CourseView() {
   return (
     <AppShell activeLang={langCode}>
       <div className="max-w-3xl mx-auto py-6">
-        <Link to={`/learn/${langCode}`} className="text-sm text-muted-foreground hover:text-foreground mb-4 inline-block">← {t("courses")}</Link>
+        <Link to="/learn/$lang" params={{ lang: langCode as "en" | "de" | "ar" | "ko" }} className="text-sm text-muted-foreground hover:text-foreground mb-4 inline-block">← {t("courses")}</Link>
         <div className="flex items-center gap-3">
           {cefr && (
             <div className="h-11 w-11 rounded-xl squircle grid place-items-center gradient-brand text-primary-foreground font-display text-sm font-bold shrink-0">
@@ -117,5 +117,5 @@ function LessonNode({ lesson, dialect, disabled }: {
     </div>
   );
 
-  return disabled ? inner : <Link to={`/lesson/${lesson.id}`}>{inner}</Link>;
+  return disabled ? inner : <Link to="/lesson/$id" params={{ id: lesson.id }}>{inner}</Link>;
 }
