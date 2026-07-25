@@ -150,7 +150,7 @@ export const getCourses = createServerFn({ method: "POST" })
     const [{ data: levels }, { data: userLevel }, { data: progress }] = await Promise.all([
       supabase
         .from("levels")
-        .select("id, cefr, order_index, courses(id, order_index, title_sorani, title_badini, title_en, description_sorani, description_badini, description_en, lessons(id))")
+        .select("id, cefr, order_index, courses(id, order_index, title_sorani, title_badini, title_en, description_sorani, description_badini, description_en, cover_image_path, lessons(id))")
         .eq("language_code", data.language)
         .order("order_index"),
       supabase
@@ -180,6 +180,7 @@ export const getCourses = createServerFn({ method: "POST" })
             description_sorani: c.description_sorani,
             description_badini: c.description_badini,
             description_en: c.description_en,
+            coverImageUrl: c.cover_image_path ? supabase.storage.from("course-covers").getPublicUrl(c.cover_image_path).data.publicUrl : null,
             totalLessons: lessonIds.length,
             completedLessons: lessonIds.filter((id: string) => passedIds.has(id)).length,
           };
@@ -196,7 +197,7 @@ export const getCourse = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     const { data: course } = await supabase
       .from("courses")
-      .select("id, title_sorani, title_badini, title_en, description_sorani, description_badini, description_en, level_id, levels(cefr, language_code), lessons(id, order_index, title_sorani, title_badini, title_en, summary_sorani, summary_badini, summary_en)")
+      .select("id, title_sorani, title_badini, title_en, description_sorani, description_badini, description_en, cover_image_path, level_id, levels(cefr, language_code), lessons(id, order_index, title_sorani, title_badini, title_en, summary_sorani, summary_badini, summary_en)")
       .eq("id", data.courseId)
       .maybeSingle();
     if (!course) throw new Error("Course not found");
@@ -226,8 +227,8 @@ export const getCourse = createServerFn({ method: "POST" })
         score: scoreMap.get(l.id) ?? 0,
       };
     });
-    const { lessons: _omit, ...courseInfo } = course;
-    return { course: courseInfo, lessons: nodes };
+    const { lessons: _omit, cover_image_path, ...courseInfo } = course;
+    return { course: { ...courseInfo, coverImageUrl: cover_image_path ? supabase.storage.from("course-covers").getPublicUrl(cover_image_path).data.publicUrl : null }, lessons: nodes };
   });
 
 /* -------------------- LESSON RUNNER -------------------- */
@@ -239,7 +240,7 @@ export const getLesson = createServerFn({ method: "POST" })
     const [{ data: lesson }, { data: exercises }] = await Promise.all([
       supabase
         .from("lessons")
-        .select("id, title_sorani, title_badini, title_en, grammar_md_sorani, grammar_md_badini, grammar_md_en, dialogue_json, level_id, course_id, levels(cefr, language_code)")
+        .select("id, title_sorani, title_badini, title_en, grammar_md_sorani, grammar_md_badini, grammar_md_en, dialogue_json, steps_json, level_id, course_id, levels(cefr, language_code)")
         .eq("id", data.lessonId)
         .maybeSingle(),
       supabase.from("lesson_exercises").select("*").eq("lesson_id", data.lessonId).order("order_index"),
