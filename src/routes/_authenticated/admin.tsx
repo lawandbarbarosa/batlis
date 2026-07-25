@@ -54,6 +54,7 @@ export const Route = createFileRoute("/_authenticated/admin")({
 type Tab = "lessons" | "vocab" | "videos" | "books" | "users";
 const LANGS = ["en", "de", "ar", "ko"] as const;
 const CEFRS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
+const VIDEO_CATEGORIES = ["podcast", "animation", "movie", "show", "talking", "music", "documentary", "news", "other"] as const;
 
 function AdminPage() {
   const { t } = useDialect();
@@ -587,7 +588,7 @@ function VideosTab() {
           <SelectContent>{LANGS.map((l) => <SelectItem key={l} value={l}>{l.toUpperCase()}</SelectItem>)}</SelectContent>
         </Select>
         <div className="flex-1" />
-        <Button onClick={() => { setEditing({ language_code: lang, level_cefr: "A1", title: "", video_path: "", banner_path: "", youtube_id: "", transcript_json: [] }); setOpen(true); }}>{t("add_new")}</Button>
+        <Button onClick={() => { setEditing({ language_code: lang, level_cefr: "A1", category: null, title: "", video_path: "", banner_path: "", youtube_id: "", transcript_json: [] }); setOpen(true); }}>{t("add_new")}</Button>
       </div>
       <div className="grid gap-2">
         {(q.data?.videos ?? []).length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
@@ -595,7 +596,10 @@ function VideosTab() {
           <Card key={v.id}>
             <CardContent className="p-3 flex justify-between items-center">
               <div>
-                <div className="font-medium">{v.title}</div>
+                <div className="font-medium flex items-center gap-2 flex-wrap">
+                  {v.title}
+                  {v.category ? <Badge variant="secondary">{t(`video_category_${v.category}` as never)}</Badge> : null}
+                </div>
                 <div className="text-xs text-muted-foreground">{v.level_cefr} · {v.video_path ? "uploaded" : v.youtube_id ? `YT: ${v.youtube_id}` : "no source"}</div>
               </div>
               <div className="flex gap-2">
@@ -640,6 +644,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: string)
 }
 
 function VideoForm({ value, onChange }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
+  const { t } = useDialect();
   const set = (k: string, v: unknown) => onChange({ ...value, [k]: v });
   const [uploading, setUploading] = useState(false);
   const [uploadElapsed, setUploadElapsed] = useState(0);
@@ -775,6 +780,18 @@ function VideoForm({ value, onChange }: { value: Record<string, unknown>; onChan
             <SelectContent>{CEFRS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
           </Select>
         </div>
+      </div>
+      <div><Label>{t("video_category")}</Label>
+        <Select
+          value={(value.category as string) || "uncategorized"}
+          onValueChange={(v) => set("category", v === "uncategorized" ? null : v)}
+        >
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="uncategorized">{t("video_category_uncategorized")}</SelectItem>
+            {VIDEO_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{t(`video_category_${c}` as never)}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
       <div><Label>Title</Label><Input value={(value.title ?? "") as string} onChange={(e) => set("title", e.target.value)} /></div>
       <div><Label>Description</Label><Textarea value={(value.description ?? "") as string} onChange={(e) => set("description", e.target.value)} /></div>
