@@ -127,21 +127,21 @@ function Dashboard() {
             <div className="mt-6 flex flex-wrap gap-3">
               {data.recentLesson ? (
                 <Button asChild size="lg" className="gradient-brand shadow-elegant">
-                  <Link to={`/lesson/${data.recentLesson.id}`}>
+                  <Link to="/lesson/$id" params={{ id: data.recentLesson.id }}>
                     <ArrowLeft className="ml-2 h-4 w-4" />
                     {t("continue")}
                   </Link>
                 </Button>
               ) : (
                 <Button asChild size="lg" className="gradient-brand shadow-elegant">
-                  <Link to={`/learn/${data.activeLang}`}>
+                  <Link to="/learn/$lang" params={{ lang: data.activeLang ?? "en" }}>
                     <ArrowLeft className="ml-2 h-4 w-4" />
                     {t("start")}
                   </Link>
                 </Button>
               )}
               <Button asChild variant="outline" size="lg">
-                <Link to={`/learn/${data.activeLang}`}>{t("courses")}</Link>
+                <Link to="/learn/$lang" params={{ lang: data.activeLang ?? "en" }}>{t("courses")}</Link>
               </Button>
             </div>
           </div>
@@ -185,7 +185,7 @@ function Dashboard() {
         </div>
 
         {/* Vocab quick access */}
-        <Link to={`/vocab/${data.activeLang}`} className="lg:col-span-2 bento-card p-6 flex items-start justify-between hover:bg-accent/40 transition-colors">
+        <Link to="/vocab/$lang" params={{ lang: data.activeLang ?? "en" }} className="lg:col-span-2 bento-card p-6 flex items-start justify-between hover:bg-accent/40 transition-colors">
           <div>
             <div className="text-xs uppercase tracking-wider text-muted-foreground">{t("vocabulary")}</div>
             <div className="mt-1 font-display text-xl font-semibold">{t("flashcards")}</div>
@@ -194,7 +194,7 @@ function Dashboard() {
         </Link>
 
         {/* Videos quick access */}
-        <Link to={`/videos/${data.activeLang}`} className="lg:col-span-2 bento-card p-6 flex items-start justify-between hover:bg-accent/40 transition-colors">
+        <Link to="/videos/$lang" params={{ lang: data.activeLang ?? "en" }} className="lg:col-span-2 bento-card p-6 flex items-start justify-between hover:bg-accent/40 transition-colors">
           <div>
             <div className="text-xs uppercase tracking-wider text-muted-foreground">{t("videos")}</div>
             <div className="mt-1 font-display text-xl font-semibold">{t("video_practice")}</div>
@@ -203,7 +203,7 @@ function Dashboard() {
         </Link>
 
         {/* Books quick access */}
-        <Link to={`/books/${data.activeLang}`} className="lg:col-span-2 bento-card p-6 flex items-start justify-between hover:bg-accent/40 transition-colors">
+        <Link to="/books/$lang" params={{ lang: data.activeLang ?? "en" }} className="lg:col-span-2 bento-card p-6 flex items-start justify-between hover:bg-accent/40 transition-colors">
           <div>
             <div className="text-xs uppercase tracking-wider text-muted-foreground">{t("books")}</div>
             <div className="mt-1 font-display text-xl font-semibold">{t("book_practice")}</div>
