@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const langEnum = z.enum(["en", "de", "ar", "ko"]);
 const cefrEnum = z.enum(["A1", "A2", "B1", "B2", "C1", "C2"]);
+const videoCategoryEnum = z.enum(["podcast", "animation", "movie", "show", "talking", "music", "documentary", "news", "other"]);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function assertAdmin(context: any) {
@@ -306,6 +307,7 @@ export const adminUpsertVideo = createServerFn({ method: "POST" })
       id: z.string().uuid().optional(),
       language_code: langEnum,
       level_cefr: cefrEnum,
+      category: videoCategoryEnum.optional().nullable(),
       youtube_id: z.string().max(50).optional().nullable(),
       video_path: z.string().max(500).optional().nullable(),
       banner_path: z.string().max(500).optional().nullable(),
@@ -323,7 +325,7 @@ export const adminUpsertVideo = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) => {
     await assertAdmin(context);
-    const payload = { ...data, youtube_id: data.youtube_id || null, video_path: data.video_path || null, banner_path: data.banner_path || null };
+    const payload = { ...data, category: data.category || null, youtube_id: data.youtube_id || null, video_path: data.video_path || null, banner_path: data.banner_path || null };
     const { data: saved, error } = await context.supabase.from("videos").upsert(payload).select().single();
     if (error) throw new Error(error.message);
     return { video: saved };
