@@ -5,6 +5,7 @@ import { getDashboard, updateActiveLanguage, updateDialect } from "@/lib/learn.f
 import { useDialect } from "@/hooks/use-dialect";
 import { AppShell } from "@/components/app-shell";
 import { AccessibilityToggle } from "@/components/accessibility-toggle";
+import { FlagIcon } from "@/components/flag-icon";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -62,7 +63,9 @@ function SettingsPage() {
                   lang.code === data?.activeLang ? "border-primary-ink bg-primary/10" : "border-border hover:border-primary/40"
                 }`}
               >
-                <span className="text-3xl">{lang.flag_emoji}</span>
+                <span className="text-3xl">
+                  <FlagIcon code={lang.code} />
+                </span>
                 <div className="text-left rtl:text-right">
                   <div className="font-semibold">{dialect === "sorani" ? lang.name_sorani : dialect === "badini" ? lang.name_badini : lang.name_en}</div>
                   <div className="text-xs text-muted-foreground">{lang.name_en}</div>
