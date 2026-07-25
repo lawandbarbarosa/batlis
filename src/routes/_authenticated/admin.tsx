@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, ChevronUp, ChevronDown, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDialect } from "@/hooks/use-dialect";
 import { cn } from "@/lib/utils";
@@ -148,6 +148,7 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
       order_index: (q.data.courses.length ?? 0),
       title_sorani: "", title_badini: "", title_en: "",
       description_sorani: "", description_badini: "", description_en: "",
+      cover_image_path: "",
     });
     setOpen(true);
   };
@@ -158,12 +159,19 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
       <div className="flex justify-end mb-4"><Button onClick={openNew}>{t("add_new")}</Button></div>
       <div className="grid gap-3">
         {(q.data?.courses ?? []).length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
-        {(q.data?.courses ?? []).map((c) => (
+        {(q.data?.courses ?? []).map((c) => {
+          const coverUrl = c.cover_image_path ? supabase.storage.from("course-covers").getPublicUrl(c.cover_image_path).data.publicUrl : null;
+          return (
           <Card key={c.id}>
             <CardContent className="p-4 flex justify-between items-center gap-3">
-              <button type="button" className="text-left flex-1 min-w-0" onClick={() => onOpenCourse({ id: c.id, title_sorani: c.title_sorani, level_id: c.level_id })}>
-                <div className="font-medium">{c.order_index + 1}. {c.title_sorani}{c.title_en ? ` (${c.title_en})` : ""}</div>
-                <div className="text-sm text-muted-foreground">{c.title_badini} · {(c.lessons ?? []).length} lesson{(c.lessons ?? []).length === 1 ? "" : "s"}</div>
+              <button type="button" className="text-left flex-1 min-w-0 flex items-center gap-3" onClick={() => onOpenCourse({ id: c.id, title_sorani: c.title_sorani, level_id: c.level_id })}>
+                <div className="h-10 w-14 shrink-0 rounded-md overflow-hidden bg-muted grid place-items-center">
+                  {coverUrl ? <img src={coverUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-[10px] text-muted-foreground">No image</span>}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-medium">{c.order_index + 1}. {c.title_sorani}{c.title_en ? ` (${c.title_en})` : ""}</div>
+                  <div className="text-sm text-muted-foreground">{c.title_badini} · {(c.lessons ?? []).length} lesson{(c.lessons ?? []).length === 1 ? "" : "s"}</div>
+                </div>
               </button>
               <div className="flex gap-2 shrink-0">
                 <Button variant="outline" size="sm" onClick={() => { setEditing(c as unknown as Record<string, unknown>); setOpen(true); }}>{t("edit")}</Button>
@@ -171,7 +179,8 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
               </div>
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -189,6 +198,31 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
 
 function CourseForm({ value, onChange }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
   const set = (k: string, v: unknown) => onChange({ ...value, [k]: v });
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const [coverEditor, setCoverEditor] = useState<{ url: string; crossOrigin: boolean; revoke: boolean } | null>(null);
+
+  const coverPreviewUrl = value.cover_image_path
+    ? supabase.storage.from("course-covers").getPublicUrl(value.cover_image_path as string).data.publicUrl
+    : null;
+
+  const onCoverUpload = async (blob: Blob) => {
+    setUploadingCover(true);
+    try {
+      const path = `${crypto.randomUUID()}.jpg`;
+      const { error } = await supabase.storage.from("course-covers").upload(path, blob, { upsert: false, contentType: blob.type || "image/jpeg" });
+      if (error) throw error;
+      set("cover_image_path", path);
+      toast.success("Cover image uploaded");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setUploadingCover(false);
+    }
+  };
+  const openCoverEditorForFile = (file: File) => setCoverEditor({ url: URL.createObjectURL(file), crossOrigin: false, revoke: true });
+  const openCoverEditorForCurrent = () => { if (coverPreviewUrl) setCoverEditor({ url: coverPreviewUrl, crossOrigin: true, revoke: false }); };
+  const closeCoverEditor = () => { if (coverEditor?.revoke) URL.revokeObjectURL(coverEditor.url); setCoverEditor(null); };
+
   return (
     <div className="grid gap-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -200,6 +234,42 @@ function CourseForm({ value, onChange }: { value: Record<string, unknown>; onCha
       <div><Label>Description (Sorani)</Label><Textarea value={(value.description_sorani ?? "") as string} onChange={(e) => set("description_sorani", e.target.value)} /></div>
       <div><Label>Description (Badini)</Label><Textarea value={(value.description_badini ?? "") as string} onChange={(e) => set("description_badini", e.target.value)} /></div>
       <div><Label>Description (English)</Label><Textarea value={(value.description_en ?? "") as string} onChange={(e) => set("description_en", e.target.value)} /></div>
+
+      <div className="rounded-md border p-3 bg-muted/30 grid gap-2">
+        <Label>Cover image</Label>
+        <Input
+          type="file"
+          accept="image/*"
+          disabled={uploadingCover}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) openCoverEditorForFile(f);
+            e.target.value = "";
+          }}
+        />
+        {coverPreviewUrl ? (
+          <>
+            <div className="relative aspect-[4/3] w-40 rounded-md overflow-hidden bg-muted">
+              <img src={coverPreviewUrl} alt="Course cover preview" className="w-full h-full object-cover" />
+            </div>
+            <Button type="button" size="sm" variant="outline" className="w-fit" disabled={uploadingCover} onClick={openCoverEditorForCurrent}>
+              Adjust crop
+            </Button>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">Shown on the course card learners tap to open this course. You'll be able to pan &amp; zoom it before it uploads.</p>
+        )}
+        {uploadingCover && <p className="text-xs">Uploading cover…</p>}
+      </div>
+
+      {coverEditor && (
+        <BannerEditorDialog
+          imageUrl={coverEditor.url}
+          crossOrigin={coverEditor.crossOrigin}
+          onCancel={closeCoverEditor}
+          onSave={(blob) => { closeCoverEditor(); onCoverUpload(blob); }}
+        />
+      )}
     </div>
   );
 }
@@ -232,6 +302,7 @@ function CourseLessonsPanel({ course, onBack }: { course: { id: string; title_so
       order_index: (q.data?.lessons.length ?? 0),
       title_sorani: "", title_badini: "", title_en: "",
       dialogue_json: [],
+      steps_json: [],
     });
     setOpen(true);
   };
@@ -276,6 +347,90 @@ function CourseLessonsPanel({ course, onBack }: { course: { id: string; title_so
   );
 }
 
+type LessonStep =
+  | { type: "word"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string }
+  | { type: "sentence"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string }
+  | { type: "image"; url: string; caption?: string }
+  | { type: "tip"; text: string };
+
+function blankStep(type: LessonStep["type"]): LessonStep {
+  if (type === "word" || type === "sentence") return { type, target: "", kurdish_sorani: "", kurdish_badini: "", audio_url: "" };
+  if (type === "image") return { type, url: "", caption: "" };
+  return { type, text: "" };
+}
+
+function LessonStepsEditor({ value, onChange }: { value: LessonStep[]; onChange: (v: LessonStep[]) => void }) {
+  const steps = value ?? [];
+  const update = (i: number, patch: Record<string, unknown>) => {
+    const next = steps.slice();
+    next[i] = { ...next[i], ...patch } as LessonStep;
+    onChange(next);
+  };
+  const remove = (i: number) => onChange(steps.filter((_, idx) => idx !== i));
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= steps.length) return;
+    const next = steps.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+  const add = (type: LessonStep["type"]) => onChange([...steps, blankStep(type)]);
+
+  return (
+    <div className="grid gap-2">
+      {steps.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          No steps yet — learners will go straight from the intro to the quiz. Add a word or sentence below to build a step-by-step walkthrough first.
+        </p>
+      )}
+      {steps.map((s, i) => (
+        <div key={i} className="rounded-md border p-3 bg-muted/20">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{i + 1}. {s.type}</span>
+            <div className="flex gap-1">
+              <Button type="button" size="icon" variant="ghost" className="h-6 w-6" onClick={() => move(i, -1)} disabled={i === 0}><ChevronUp className="h-3 w-3" /></Button>
+              <Button type="button" size="icon" variant="ghost" className="h-6 w-6" onClick={() => move(i, 1)} disabled={i === steps.length - 1}><ChevronDown className="h-3 w-3" /></Button>
+              <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => remove(i)}><Trash2 className="h-3 w-3" /></Button>
+            </div>
+          </div>
+
+          {(s.type === "word" || s.type === "sentence") && (
+            <div className="grid gap-2">
+              <Input
+                dir="ltr"
+                placeholder={s.type === "word" ? "Word, e.g. apple" : "Sentence, e.g. I eat an apple every day."}
+                value={s.target}
+                onChange={(e) => update(i, { target: e.target.value })}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <Input dir="rtl" placeholder="Kurdish (Sorani)" value={s.kurdish_sorani ?? ""} onChange={(e) => update(i, { kurdish_sorani: e.target.value })} />
+                <Input dir="rtl" placeholder="Kurdish (Badini)" value={s.kurdish_badini ?? ""} onChange={(e) => update(i, { kurdish_badini: e.target.value })} />
+              </div>
+              <Input placeholder="Audio URL (optional — leave blank to use text-to-speech)" value={s.audio_url ?? ""} onChange={(e) => update(i, { audio_url: e.target.value })} />
+            </div>
+          )}
+          {s.type === "image" && (
+            <div className="grid gap-2">
+              <Input placeholder="Image URL" value={s.url} onChange={(e) => update(i, { url: e.target.value })} />
+              <Input placeholder="Caption (optional)" value={s.caption ?? ""} onChange={(e) => update(i, { caption: e.target.value })} />
+            </div>
+          )}
+          {s.type === "tip" && (
+            <Textarea placeholder="A short note or grammar aside" value={s.text} onChange={(e) => update(i, { text: e.target.value })} />
+          )}
+        </div>
+      ))}
+
+      <div className="flex flex-wrap gap-2 mt-1">
+        <Button type="button" variant="outline" size="sm" onClick={() => add("word")}>+ Word</Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => add("sentence")}>+ Sentence</Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => add("image")}>+ Image</Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => add("tip")}>+ Tip</Button>
+      </div>
+    </div>
+  );
+}
+
 function LessonForm({ value, onChange }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
   const set = (k: string, v: unknown) => onChange({ ...value, [k]: v });
   return (
@@ -292,8 +447,15 @@ function LessonForm({ value, onChange }: { value: Record<string, unknown>; onCha
       <div><Label>Grammar (Sorani, Markdown)</Label><Textarea rows={5} value={(value.grammar_md_sorani ?? "") as string} onChange={(e) => set("grammar_md_sorani", e.target.value)} /></div>
       <div><Label>Grammar (Badini, Markdown)</Label><Textarea rows={5} value={(value.grammar_md_badini ?? "") as string} onChange={(e) => set("grammar_md_badini", e.target.value)} /></div>
       <div><Label>Grammar (English, Markdown)</Label><Textarea rows={5} value={(value.grammar_md_en ?? "") as string} onChange={(e) => set("grammar_md_en", e.target.value)} /></div>
+
+      <div className="rounded-md border p-3 bg-muted/30">
+        <Label>Words &amp; Sentences (step-by-step)</Label>
+        <p className="text-xs text-muted-foreground mt-0.5 mb-3">Learners walk through these one at a time, before the quiz. Each word/sentence is read aloud automatically.</p>
+        <LessonStepsEditor value={(value.steps_json as LessonStep[]) ?? []} onChange={(v) => set("steps_json", v)} />
+      </div>
+
       <div>
-        <Label>Dialogue JSON: [{"{"}"speaker","line","translation_ku"{"}"}]</Label>
+        <Label>Dialogue JSON: [{"{"}"speaker","text","translation_sorani","translation_badini"{"}"}]</Label>
         <Textarea rows={4} value={JSON.stringify(value.dialogue_json ?? [], null, 2)} onChange={(e) => { try { set("dialogue_json", JSON.parse(e.target.value)); } catch { /* keep typing */ } }} />
       </div>
     </div>
