@@ -284,9 +284,12 @@ function VideoView() {
         {/* Header Title Context Layout */}
         <div className="flex items-start justify-between gap-4 flex-wrap pb-2">
           <div className="min-w-0 flex-1">
-            <h1 className="font-display text-lg sm:text-2xl font-bold text-foreground break-words" dir="ltr">
-              {v.title}
-            </h1>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="font-display text-lg sm:text-2xl font-bold text-foreground break-words" dir="ltr">
+                {v.title}
+              </h1>
+              {v.category && <Badge variant="secondary">{t(`video_category_${v.category}` as never)}</Badge>}
+            </div>
             {v.description && <p className="text-muted-foreground mt-1 text-sm break-words">{v.description}</p>}
           </div>
         </div>
