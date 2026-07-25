@@ -36,6 +36,7 @@ import {
   adminSetUserRole,
   transcribeVideoFile,
   translateTranscriptLines,
+  translateLessonWords,
   generateWordMeaning,
   extractBookPages,
 } from "@/lib/admin.functions";
@@ -109,7 +110,7 @@ function LessonsTab() {
         setCefr={(v) => { setCefr(v); setActiveCourse(null); }}
       />
       {activeCourse ? (
-        <CourseLessonsPanel course={activeCourse} onBack={() => setActiveCourse(null)} />
+        <CourseLessonsPanel course={activeCourse} lang={lang} onBack={() => setActiveCourse(null)} />
       ) : (
         <CoursesPanel lang={lang} cefr={cefr} onOpenCourse={setActiveCourse} />
       )}
@@ -275,7 +276,7 @@ function CourseForm({ value, onChange }: { value: Record<string, unknown>; onCha
   );
 }
 
-function CourseLessonsPanel({ course, onBack }: { course: { id: string; title_sorani: string; level_id: string }; onBack: () => void }) {
+function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; title_sorani: string; level_id: string }; lang: string; onBack: () => void }) {
   const { t } = useDialect();
   const qc = useQueryClient();
   const list = useServerFn(adminListLessons);
@@ -336,7 +337,7 @@ function CourseLessonsPanel({ course, onBack }: { course: { id: string; title_so
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{t("admin_lessons")}</DialogTitle></DialogHeader>
           {editing && (
-            <LessonForm value={editing} onChange={setEditing} />
+            <LessonForm value={editing} onChange={setEditing} lang={lang} />
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>{t("cancel")}</Button>
@@ -360,8 +361,12 @@ function blankStep(type: LessonStep["type"]): LessonStep {
   return { type, text: "" };
 }
 
-function LessonStepsEditor({ value, onChange }: { value: LessonStep[]; onChange: (v: LessonStep[]) => void }) {
+function LessonStepsEditor({ value, onChange, sourceLanguage }: { value: LessonStep[]; onChange: (v: LessonStep[]) => void; sourceLanguage: string }) {
   const steps = value ?? [];
+  const translate = useServerFn(translateLessonWords);
+  const [translatingAll, setTranslatingAll] = useState(false);
+  const [translatingIdx, setTranslatingIdx] = useState<number | null>(null);
+
   const update = (i: number, patch: Record<string, unknown>) => {
     const next = steps.slice();
     next[i] = { ...next[i], ...patch } as LessonStep;
@@ -377,12 +382,65 @@ function LessonStepsEditor({ value, onChange }: { value: LessonStep[]; onChange:
   };
   const add = (type: LessonStep["type"]) => onChange([...steps, blankStep(type)]);
 
+  const isWordOrSentence = (s: LessonStep): s is Extract<LessonStep, { type: "word" | "sentence" }> =>
+    s.type === "word" || s.type === "sentence";
+
+  const translateStep = async (i: number) => {
+    const s = steps[i];
+    if (!isWordOrSentence(s) || !s.target.trim()) return;
+    setTranslatingIdx(i);
+    try {
+      const res = await translate({ data: { source_language: sourceLanguage as never, items: [{ text: s.target }] } });
+      const tr = res.translations[0];
+      update(i, { kurdish_sorani: tr.sorani, kurdish_badini: tr.badini });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setTranslatingIdx(null);
+    }
+  };
+
+  const translateAllMissing = async () => {
+    const targets = steps
+      .map((s, i) => ({ s, i }))
+      .filter(({ s }) => isWordOrSentence(s) && s.target.trim() && !(s.kurdish_sorani?.trim() && s.kurdish_badini?.trim()));
+    if (targets.length === 0) {
+      toast.info("Nothing to translate — every word/sentence already has both Kurdish fields filled in.");
+      return;
+    }
+    setTranslatingAll(true);
+    try {
+      const res = await translate({
+        data: { source_language: sourceLanguage as never, items: targets.map(({ s }) => ({ text: (s as { target: string }).target })) },
+      });
+      const next = steps.slice();
+      targets.forEach(({ i }, idx) => {
+        const tr = res.translations[idx];
+        next[i] = { ...next[i], kurdish_sorani: tr.sorani, kurdish_badini: tr.badini } as LessonStep;
+      });
+      onChange(next);
+      toast.success(`Translated ${targets.length} item${targets.length === 1 ? "" : "s"}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setTranslatingAll(false);
+    }
+  };
+
   return (
     <div className="grid gap-2">
       {steps.length === 0 && (
         <p className="text-xs text-muted-foreground">
           No steps yet — learners will go straight from the intro to the quiz. Add a word or sentence below to build a step-by-step walkthrough first.
         </p>
+      )}
+      {steps.some(isWordOrSentence) && (
+        <div className="flex justify-end">
+          <Button type="button" variant="secondary" size="sm" onClick={translateAllMissing} disabled={translatingAll}>
+            {translatingAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
+            Translate all with AI
+          </Button>
+        </div>
       )}
       {steps.map((s, i) => (
         <div key={i} className="rounded-md border p-3 bg-muted/20">
@@ -403,9 +461,20 @@ function LessonStepsEditor({ value, onChange }: { value: LessonStep[]; onChange:
                 value={s.target}
                 onChange={(e) => update(i, { target: e.target.value })}
               />
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
                 <Input dir="rtl" placeholder="Kurdish (Sorani)" value={s.kurdish_sorani ?? ""} onChange={(e) => update(i, { kurdish_sorani: e.target.value })} />
                 <Input dir="rtl" placeholder="Kurdish (Badini)" value={s.kurdish_badini ?? ""} onChange={(e) => update(i, { kurdish_badini: e.target.value })} />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-9 w-9 shrink-0"
+                  title="Translate this with AI"
+                  onClick={() => translateStep(i)}
+                  disabled={translatingIdx === i || !s.target.trim()}
+                >
+                  {translatingIdx === i ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                </Button>
               </div>
               <Input placeholder="Audio URL (optional — leave blank to use text-to-speech)" value={s.audio_url ?? ""} onChange={(e) => update(i, { audio_url: e.target.value })} />
             </div>
@@ -432,7 +501,7 @@ function LessonStepsEditor({ value, onChange }: { value: LessonStep[]; onChange:
   );
 }
 
-function LessonForm({ value, onChange }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
+function LessonForm({ value, onChange, lang }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void; lang: string }) {
   const set = (k: string, v: unknown) => onChange({ ...value, [k]: v });
   return (
     <div className="grid gap-3">
@@ -451,8 +520,8 @@ function LessonForm({ value, onChange }: { value: Record<string, unknown>; onCha
 
       <div className="rounded-md border p-3 bg-muted/30">
         <Label>Words &amp; Sentences (step-by-step)</Label>
-        <p className="text-xs text-muted-foreground mt-0.5 mb-3">Learners walk through these one at a time, before the quiz. Each word/sentence is read aloud automatically.</p>
-        <LessonStepsEditor value={(value.steps_json as LessonStep[]) ?? []} onChange={(v) => set("steps_json", v)} />
+        <p className="text-xs text-muted-foreground mt-0.5 mb-3">Learners walk through these one at a time, before the quiz. Each word/sentence is read aloud automatically. Type the word — click the <Sparkles className="h-3 w-3 inline -mt-0.5" /> button or "Translate all with AI" to fill in the Kurdish fields instead of typing them yourself.</p>
+        <LessonStepsEditor value={(value.steps_json as LessonStep[]) ?? []} onChange={(v) => set("steps_json", v)} sourceLanguage={lang} />
       </div>
 
       <div>
