@@ -518,6 +518,7 @@ export type Database = {
       videos: {
         Row: {
           banner_path: string | null
+          category: Database["public"]["Enums"]["video_category"] | null
           created_at: string
           description: string | null
           duration_seconds: number | null
@@ -531,6 +532,7 @@ export type Database = {
         }
         Insert: {
           banner_path?: string | null
+          category?: Database["public"]["Enums"]["video_category"] | null
           created_at?: string
           description?: string | null
           duration_seconds?: number | null
@@ -544,6 +546,7 @@ export type Database = {
         }
         Update: {
           banner_path?: string | null
+          category?: Database["public"]["Enums"]["video_category"] | null
           created_at?: string
           description?: string | null
           duration_seconds?: number | null
@@ -646,6 +649,16 @@ export type Database = {
         | "translate"
       target_lang: "en" | "de" | "ar" | "ko"
       ui_dialect: "sorani" | "badini" | "english"
+      video_category:
+        | "podcast"
+        | "animation"
+        | "movie"
+        | "show"
+        | "talking"
+        | "music"
+        | "documentary"
+        | "news"
+        | "other"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -783,6 +796,17 @@ export const Constants = {
       ],
       target_lang: ["en", "de", "ar", "ko"],
       ui_dialect: ["sorani", "badini", "english"],
+      video_category: [
+        "podcast",
+        "animation",
+        "movie",
+        "show",
+        "talking",
+        "music",
+        "documentary",
+        "news",
+        "other",
+      ],
     },
   },
 } as const
