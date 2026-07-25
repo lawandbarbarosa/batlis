@@ -70,6 +70,7 @@ export const english: typeof sorani = {
   lesson: "Lesson",
   grammar: "Grammar",
   dialogue: "Dialogue",
+  words_sentences: "Words & Sentences",
   exercises: "Exercises",
   quiz: "Quiz",
   pass_threshold: "You need 70% to unlock the next lesson",
