@@ -5,6 +5,7 @@ import { getDashboard, updateActiveLanguage } from "@/lib/learn.functions";
 import { useDialect } from "@/hooks/use-dialect";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { FlagIcon } from "@/components/flag-icon";
 import { Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/onboarding")({
@@ -47,7 +48,9 @@ function Onboarding() {
               disabled={pick.isPending}
               className="bento-card p-6 sm:p-8 text-center hover:scale-[1.02] transition-transform disabled:opacity-50"
             >
-              <div className="text-5xl sm:text-6xl mb-4">{lang.flag_emoji}</div>
+              <div className="text-5xl sm:text-6xl mb-4">
+                <FlagIcon code={lang.code} />
+              </div>
               <div className="font-display text-xl font-semibold">
                 {dialect === "sorani" ? lang.name_sorani : dialect === "badini" ? lang.name_badini : lang.name_en}
               </div>
