@@ -60,6 +60,7 @@ export type Database = {
       }
       courses: {
         Row: {
+          cover_image_path: string | null
           created_at: string
           description_badini: string | null
           description_en: string | null
@@ -72,6 +73,7 @@ export type Database = {
           title_sorani: string
         }
         Insert: {
+          cover_image_path?: string | null
           created_at?: string
           description_badini?: string | null
           description_en?: string | null
@@ -84,6 +86,7 @@ export type Database = {
           title_sorani: string
         }
         Update: {
+          cover_image_path?: string | null
           created_at?: string
           description_badini?: string | null
           description_en?: string | null
@@ -175,6 +178,7 @@ export type Database = {
           id: string
           level_id: string
           order_index: number
+          steps_json: Json
           summary_badini: string | null
           summary_en: string | null
           summary_sorani: string | null
@@ -192,6 +196,7 @@ export type Database = {
           id?: string
           level_id: string
           order_index: number
+          steps_json?: Json
           summary_badini?: string | null
           summary_en?: string | null
           summary_sorani?: string | null
@@ -209,6 +214,7 @@ export type Database = {
           id?: string
           level_id?: string
           order_index?: number
+          steps_json?: Json
           summary_badini?: string | null
           summary_en?: string | null
           summary_sorani?: string | null
