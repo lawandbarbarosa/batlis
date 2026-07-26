@@ -78,6 +78,65 @@ export const updateDialect = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+const purposeEnum = z.enum(["travel", "career", "study", "move_abroad", "connect", "fun"]);
+
+/* -------------------- ONBOARDING -------------------- */
+// Steps 3-5 of signup onboarding: why they're learning, what level they're
+// starting at (self-reported or via the placement test), and how much time
+// per week they're committing to. Language selection itself reuses
+// updateActiveLanguage above; the placement test reuses startPlacement /
+// submitPlacement below.
+export const updateOnboardingPurpose = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ purpose: purposeEnum }).parse(d))
+  .handler(async ({ context, data }) => {
+    const { supabase, userId } = context;
+    await supabase.from("profiles").update({ learning_purpose: data.purpose }).eq("id", userId);
+    return { ok: true };
+  });
+
+// Used when the person picks a level themselves ("I can already have basic
+// conversations") instead of taking the placement test. Skips
+// placement_attempts entirely — there's no test to log — and just sets the
+// level directly, the same field the test would have written to.
+export const setManualLevel = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ language: langEnum, cefr: cefrEnum }).parse(d))
+  .handler(async ({ context, data }) => {
+    const { supabase, userId } = context;
+    await supabase.from("user_language_levels").upsert(
+      { user_id: userId, language_code: data.language, current_cefr: data.cefr },
+      { onConflict: "user_id,language_code" },
+    );
+    return { ok: true };
+  });
+
+// Final onboarding step. Setting onboarding_completed_at is what tells
+// getDashboard the wizard is actually done — not just "a language got
+// picked" — so someone who closes the tab partway through purpose/level/
+// commitment lands back in the wizard next time instead of a half-set-up
+// dashboard.
+export const completeOnboarding = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({
+      weeklyDaysGoal: z.number().int().min(1).max(7),
+      dailyGoalMinutes: z.number().int().min(1).max(240),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase, userId } = context;
+    await supabase
+      .from("profiles")
+      .update({
+        weekly_days_goal: data.weeklyDaysGoal,
+        daily_goal_minutes: data.dailyGoalMinutes,
+        onboarding_completed_at: new Date().toISOString(),
+      })
+      .eq("id", userId);
+    return { ok: true };
+  });
+
 /* -------------------- PLACEMENT -------------------- */
 export const startPlacement = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
