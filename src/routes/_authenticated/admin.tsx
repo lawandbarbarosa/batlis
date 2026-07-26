@@ -121,6 +121,26 @@ function LessonsTab() {
   );
 }
 
+const COURSE_IMPORT_EXAMPLE = `{
+  "title": "Basic English",
+  "level": "A1",
+  "blocks": [
+    {
+      "title": "Greetings",
+      "content": [
+        { "type": "word", "word": "Hello", "translation": "سڵاو", "image": "images/hello.png", "sentence": "Hello, my name is John." },
+        { "type": "word", "word": "Goodbye", "translation": "خواحافیز", "sentence": "Goodbye! See you tomorrow." }
+      ]
+    },
+    {
+      "title": "Family",
+      "content": [
+        { "type": "word", "word": "Mother", "translation": "دایک", "sentence": "My mother is a teacher." }
+      ]
+    }
+  ]
+}`;
+
 function CoursesPanel({ lang, cefr, onOpenCourse }: {
   lang: string;
   cefr: string;
@@ -160,8 +180,15 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
 
   return (
     <div>
+      <CourseJsonImportPanel
+        lang={lang}
+        cefr={cefr}
+        levelId={q.data?.levelId ?? undefined}
+        nextOrderIndex={q.data?.courses.length ?? 0}
+        onImported={(course) => { qc.invalidateQueries({ queryKey: ["admin-courses"] }); onOpenCourse(course); }}
+      />
       <p className="text-sm text-muted-foreground mb-3">Themed units within {cefr} — e.g. "Greetings and Introductions", "Personal Information". Click a course to manage its lessons.</p>
-      <div className="flex justify-end mb-4"><Button onClick={openNew}>{t("add_new")}</Button></div>
+      <div className="flex justify-end mb-4"><Button variant="outline" onClick={openNew}>{t("add_new")}</Button></div>
       <div className="grid gap-3">
         {(q.data?.courses ?? []).length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
         {(q.data?.courses ?? []).map((c) => {
@@ -197,6 +224,242 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// The primary way to build a course: paste the ENTIRE course JSON (a title
+// plus "blocks", where each block becomes one lesson) along with any
+// images/audio it references, and this creates the course and every lesson
+// in it in a single action — following the JSON's own structure exactly,
+// rather than one block at a time. Titles and any missing Kurdish
+// translation are filled in by AI; nothing else is shown or asked for.
+// review/test/finalReview/finalExam aren't supported yet and are skipped,
+// with a summary reported after saving.
+function CourseJsonImportPanel({ lang, cefr, levelId, nextOrderIndex, onImported }: {
+  lang: string;
+  cefr: string;
+  levelId: string | undefined;
+  nextOrderIndex: number;
+  onImported: (course: { id: string; title_sorani: string; level_id: string }) => void;
+}) {
+  const upsertCourse = useServerFn(adminUpsertCourse);
+  const upsertLesson = useServerFn(adminUpsertLesson);
+  const translate = useServerFn(translateLessonWords);
+  const [jsonText, setJsonText] = useState("");
+  const [assets, setAssets] = useState<Record<string, string>>({});
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      const next = { ...assets };
+      for (const file of Array.from(files)) {
+        const path = `courses/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${file.name}`;
+        const { error } = await supabase.storage.from("lesson-assets").upload(path, file, { upsert: false, contentType: file.type || undefined });
+        if (error) {
+          toast.error(`${file.name}: ${error.message}`);
+          continue;
+        }
+        next[file.name] = supabase.storage.from("lesson-assets").getPublicUrl(path).data.publicUrl;
+      }
+      setAssets(next);
+    } finally {
+      setUploading(false);
+    }
+  };
+  const removeAsset = (name: string) => setAssets((prev) => { const next = { ...prev }; delete next[name]; return next; });
+  const resolveAsset = (ref: string): string => {
+    if (!ref) return "";
+    if (/^https?:\/\//i.test(ref)) return ref;
+    const base = ref.split("/").pop() ?? ref;
+    return assets[base] ?? ref;
+  };
+
+  const runSave = async () => {
+    if (!levelId) {
+      toast.error(`No level exists yet for ${lang.toUpperCase()} / ${cefr}.`);
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch {
+      toast.error("That's not valid JSON.");
+      return;
+    }
+    const root = (parsed ?? {}) as Record<string, unknown>;
+    const courseTitleEn = typeof root.title === "string" ? root.title.trim() : "";
+    if (!courseTitleEn) {
+      toast.error('That JSON needs a top-level "title" for the course.');
+      return;
+    }
+
+    const blocks: Record<string, unknown>[] = Array.isArray(root.blocks)
+      ? (root.blocks as Record<string, unknown>[])
+      : Array.isArray(root.content)
+        ? [root] // a single block was pasted directly — treat it as a one-lesson course
+        : [];
+    if (blocks.length === 0) {
+      toast.error('No "blocks" found in that JSON.');
+      return;
+    }
+
+    let levelMismatchNote = "";
+    if (typeof root.level === "string" && root.level.toUpperCase() !== cefr.toUpperCase()) {
+      levelMismatchNote = ` Note: the JSON says level "${root.level}" but you're on ${cefr} — it was saved under ${cefr}; switch tabs first if that's wrong.`;
+    }
+
+    setSaving(true);
+    try {
+      const blockData = blocks.map((b) => {
+        const titleEn = typeof b.title === "string" ? b.title.trim() : "";
+        const content = Array.isArray(b.content) ? (b.content as unknown[]) : [];
+        const { steps: rawSteps, summary } = blockContentToSteps(content);
+        const steps: LessonStep[] = rawSteps.map((s) => {
+          if (s.type === "image") return { ...s, url: resolveAsset(s.url) };
+          if ((s.type === "word" || s.type === "sentence") && s.audio_url) return { ...s, audio_url: resolveAsset(s.audio_url) };
+          return s;
+        });
+        return { titleEn, steps, summary };
+      });
+
+      const unresolvedAssets = blockData.reduce(
+        (n, b) =>
+          n +
+          b.steps.filter(
+            (s) =>
+              (s.type === "image" && !!s.url && !/^https?:\/\//i.test(s.url)) ||
+              ((s.type === "word" || s.type === "sentence") && !!s.audio_url && !/^https?:\/\//i.test(s.audio_url)),
+          ).length,
+        0,
+      );
+
+      // One batched AI call covers: the course title, every block title, and
+      // every word/sentence anywhere in the course missing a Kurdish translation.
+      const need: { key: string; text: string }[] = [{ key: "course", text: courseTitleEn }];
+      blockData.forEach((b, bi) => {
+        if (b.titleEn) need.push({ key: `block${bi}`, text: b.titleEn });
+        b.steps.forEach((s, si) => {
+          if ((s.type === "word" || s.type === "sentence") && (!s.kurdish_sorani?.trim() || !s.kurdish_badini?.trim())) {
+            need.push({ key: `b${bi}s${si}`, text: s.target });
+          }
+        });
+      });
+      const res = await translate({ data: { source_language: lang as never, items: need.map((n) => ({ text: n.text })) } });
+      const byKey = new Map(need.map((n, i) => [n.key, res.translations[i]]));
+
+      const courseTr = byKey.get("course") ?? { sorani: "", badini: "" };
+      const courseRes = (await upsertCourse({
+        data: {
+          level_id: levelId,
+          order_index: nextOrderIndex,
+          title_sorani: courseTr.sorani,
+          title_badini: courseTr.badini,
+          title_en: courseTitleEn,
+        } as never,
+      })) as { course: { id: string } };
+      const courseId = courseRes.course.id;
+
+      let savedLessons = 0, savedWords = 0, savedSentences = 0, savedImages = 0, savedTips = 0;
+      const skippedTotals: Record<string, number> = {};
+
+      for (let bi = 0; bi < blockData.length; bi++) {
+        const b = blockData[bi];
+        if (!b.titleEn) continue; // a block without a title can't become a lesson
+        const titleTr = byKey.get(`block${bi}`) ?? { sorani: "", badini: "" };
+        const finalSteps = b.steps.map((s, si) => {
+          if (s.type !== "word" && s.type !== "sentence") return s;
+          const tr = byKey.get(`b${bi}s${si}`);
+          if (!tr) return s;
+          return { ...s, kurdish_sorani: s.kurdish_sorani?.trim() || tr.sorani, kurdish_badini: s.kurdish_badini?.trim() || tr.badini };
+        });
+        await upsertLesson({
+          data: {
+            course_id: courseId,
+            level_id: levelId,
+            order_index: bi,
+            title_sorani: titleTr.sorani,
+            title_badini: titleTr.badini,
+            title_en: b.titleEn,
+            dialogue_json: [],
+            steps_json: finalSteps,
+          } as never,
+        });
+        savedLessons++;
+        savedWords += b.summary.words;
+        savedSentences += b.summary.sentences;
+        savedImages += b.summary.images;
+        savedTips += b.summary.tips;
+        for (const [k, v] of Object.entries(b.summary.skipped)) skippedTotals[k] = (skippedTotals[k] ?? 0) + v;
+      }
+      if (root.finalReview) skippedTotals.finalReview = (skippedTotals.finalReview ?? 0) + 1;
+      if (root.finalExam) skippedTotals.finalExam = (skippedTotals.finalExam ?? 0) + 1;
+
+      setJsonText("");
+      setAssets({});
+      onImported({ id: courseId, title_sorani: courseTr.sorani, level_id: levelId });
+
+      const parts = [
+        `${savedLessons} lesson${savedLessons === 1 ? "" : "s"}`,
+        savedWords ? `${savedWords} word${savedWords === 1 ? "" : "s"}` : null,
+        savedSentences ? `${savedSentences} sentence${savedSentences === 1 ? "" : "s"}` : null,
+        savedImages ? `${savedImages} image${savedImages === 1 ? "" : "s"}` : null,
+        savedTips ? `${savedTips} tip${savedTips === 1 ? "" : "s"}` : null,
+      ].filter(Boolean);
+      const skippedParts = Object.entries(skippedTotals).map(([k, v]) => `${v} ${k}`);
+      let msg = `Created "${courseTitleEn}" — ${parts.join(", ")}. Titles and missing translations were filled in with AI.`;
+      if (skippedParts.length) msg += ` Skipped (not supported yet): ${skippedParts.join(", ")}.`;
+      if (unresolvedAssets) msg += ` ${unresolvedAssets} image/audio reference${unresolvedAssets === 1 ? "" : "s"} didn't match an uploaded file.`;
+      msg += levelMismatchNote;
+      toast.success(msg);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border p-4 bg-muted/20 mb-5">
+      <Label>Paste a course as JSON</Label>
+      <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+        Paste a full course — <code>title</code> plus <code>blocks</code> (each block becomes one lesson). This creates the course and every lesson in it in one go, matching the JSON's structure. <code>review</code>, <code>test</code>, <code>finalReview</code>, and <code>finalExam</code> aren't supported yet and are skipped, with a summary shown after saving.
+      </p>
+      <Textarea
+        rows={16}
+        className="font-mono text-xs"
+        dir="ltr"
+        value={jsonText}
+        onChange={(e) => setJsonText(e.target.value)}
+        placeholder={COURSE_IMPORT_EXAMPLE}
+      />
+      <div className="mt-3">
+        <Label>Images &amp; audio (optional)</Label>
+        <p className="text-xs text-muted-foreground mb-1.5">
+          Upload files with the same names your JSON references anywhere in the course — e.g. upload <code>hello.png</code> to fill in <code>"image": "images/hello.png"</code>. Anything you don't upload is left as-is.
+        </p>
+        <Input type="file" multiple accept="image/*,audio/*" disabled={uploading} onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }} />
+        {uploading && <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Uploading…</p>}
+        {Object.keys(assets).length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-2">
+            {Object.keys(assets).map((name) => (
+              <span key={name} className="inline-flex items-center gap-1.5 text-xs bg-muted rounded-full pl-2.5 pr-1.5 py-1">
+                {name}
+                <button type="button" onClick={() => removeAsset(name)} className="text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex justify-end mt-3">
+        <Button onClick={runSave} disabled={saving || uploading || !jsonText.trim()}>
+          {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+          Save Course
+        </Button>
+      </div>
     </div>
   );
 }
