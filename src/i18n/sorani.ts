@@ -44,6 +44,65 @@ const s = {
   take_placement: "تاقیکردنەوەی ئاست",
   skip_placement: "دەستپێبکە لە A1",
 
+  // Onboarding step 1 — UI language
+  onboarding_ui_lang_title: "کام زمان دەتەوێت بەکاری بهێنیت؟",
+  onboarding_ui_lang_sub: "ئەو زمانە هەڵبژێرە کە زیاتر خۆشت خوێندنەوەیەتی — دواتریش دەتوانیت لە ڕێکخستنەکان بیگۆڕیت.",
+  onboarding_ui_lang_confirm_title: "هەموو شتێک ئامادەیە!",
+  onboarding_ui_lang_confirm_body: "لەمەودوا ئەم ئەپە بە کوردیی سۆرانی ڕێنماییت دەکات — هەموو وانە، دوگمە و ئامۆژگارییەک.",
+
+  // Onboarding step 2 — target language
+  onboarding_target_title: "چ زمانێک دەتەوێت فێری بیت؟",
+  onboarding_target_sub: "لەگەڵ ئینگلیزی دەستپێدەکەین — زمانی زیاتر بەم زووانە دێن.",
+  onboarding_coming_soon: "بەم زووانە",
+  onboarding_target_confirm_title: "هەڵبژاردنێکی باشە!",
+  onboarding_target_confirm_body: "ئینگلیزی بە تەواوی ئامادەیە — وانەکان، وشەکان، ڤیدیۆکان و کتێبەکان هەموو بۆت ئامادەن.",
+
+  // Onboarding step 3 — purpose
+  onboarding_purpose_title: "بۆچی دەتەوێت ئینگلیزی فێربیت؟",
+  onboarding_purpose_sub: "ئەمە یارمەتیمان دەدات وانەی گونجاو بۆت پێشنیاز بکەین.",
+  purpose_travel: "گەشتوگوزار",
+  purpose_travel_sub: "بە ئاسانی گەشت بکە بۆ دەرەوە",
+  purpose_career: "کار و پیشە",
+  purpose_career_sub: "دەرفەتی کاری باشتر بکەرەوە",
+  purpose_study: "خوێندن",
+  purpose_study_sub: "ئامادەکاری بۆ تاقیکردنەوە یان خوێندنی زیاتر",
+  purpose_move_abroad: "کۆچکردن بۆ دەرەوە",
+  purpose_move_abroad_sub: "دامەزراوبوون و ژیانێکی نوێ",
+  purpose_connect: "پەیوەندیکردن لەگەڵ خەڵک",
+  purpose_connect_sub: "قسەکردن لەگەڵ هاوڕێ و کەسانی نوێ",
+  purpose_fun: "بۆ خۆشی و حەز",
+  purpose_fun_sub: "فێربوون تەنها لەبەر حەز و بایەخ",
+  onboarding_purpose_confirm_title: "باشە، تۆمارکرا!",
+  onboarding_purpose_confirm_body: "لە کاتی فێربوونیشدا لەبیرمان دەبێت — یارمەتیت دەدات بگەیتە ئەو وانانەی زۆر پێویستن بۆت.",
+
+  // Onboarding step 4 — level
+  onboarding_level_title: "ئاستت لە ئینگلیزیدا چۆنە؟",
+  onboarding_level_sub: "ئەوەی نزیکترە لە خۆت هەڵبژێرە — دواتریش دەتوانیت بیگۆڕیت.",
+  level_a1: "سەرەتایی",
+  level_a1_sub: "تازە دەستپێدەکەم",
+  level_a2: "بنەڕەتی",
+  level_a2_sub: "هەندێک وشە و ڕستەی سادە دەزانم",
+  level_b1: "ناوەند",
+  level_b1_sub: "دەتوانم گفتوگۆی ڕۆژانە بکەم",
+  level_b2: "ناوەندی بەرز",
+  level_b2_sub: "ئاسوودەم، تەنها دەمەوێت باشتر بم",
+  level_unsure: "دڵنیا نیت؟ تاقیم بکەوە",
+  level_unsure_sub: "١٥ پرسیاری خێرا وەڵامبدەوە بۆ دۆزینەوەی ئاستت",
+  onboarding_level_confirm_title: "باشە، ئەمە جێگیر بوو!",
+  onboarding_level_confirm_body: "وانەکانت لە ئاستی ڕاستەقینەی خۆت دەست پێدەکەن.",
+
+  // Onboarding step 5 — weekly commitment
+  onboarding_commitment_title: "چەند کات دەتوانیت تەرخانی بکەیت؟",
+  onboarding_commitment_sub: "ئامانجێکی ڕاستەقینە باشترە لەوەی بەرزە و وازی لێ دەهێنیت.",
+  commitment_days_label: "ڕۆژ لە هەفتەیەکدا",
+  commitment_days_3: "سووک",
+  commitment_days_5: "ئاسایی",
+  commitment_days_7: "هەموو ڕۆژێک",
+  commitment_minutes_label: "خولەک لە ڕۆژێکدا",
+  commitment_recommended: "پێشنیارکراو",
+  onboarding_commitment_confirm_title: "ئەمە ئامانجێکی باشە!",
+  onboarding_commitment_confirm_body: "یارمەتیت دەدەین بەردەوام بیت لەگەڵ بیرخەرەوەی ڕۆژانە و زنجیرە — ئێستا ئامادەی بۆ دەستپێکردنیت.",
+
   // Dashboard
   menu: "مینیو",
   dashboard: "سەرەکی",
