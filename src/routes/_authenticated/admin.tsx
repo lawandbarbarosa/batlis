@@ -12,7 +12,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Loader2, ChevronUp, ChevronDown, Trash2 } from "lucide-react";
+import { Sparkles, Loader2, ChevronUp, ChevronDown, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { useDialect } from "@/hooks/use-dialect";
 import { cn } from "@/lib/utils";
@@ -288,8 +288,7 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
   const q = useQuery({ queryKey: ["admin-lessons", course.id], queryFn: () => list({ data: { courseId: course.id } }) });
   const [editing, setEditing] = useState<null | Record<string, unknown>>(null);
   const [open, setOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
-  const [importText, setImportText] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
 
   const save = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => upsert({ data: payload as never }),
@@ -302,73 +301,12 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const openNew = () => {
-    setEditing({
-      course_id: course.id,
-      level_id: course.level_id,
-      order_index: (q.data?.lessons.length ?? 0),
-      title_sorani: "", title_badini: "", title_en: "",
-      dialogue_json: [],
-      steps_json: [],
-    });
-    setOpen(true);
-  };
-
-  const runImport = () => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(importText);
-    } catch {
-      toast.error("That's not valid JSON.");
-      return;
-    }
-    let block = (parsed ?? {}) as Record<string, unknown>;
-    let multiBlockNote = "";
-    if (Array.isArray(block.blocks)) {
-      const blocks = block.blocks as Record<string, unknown>[];
-      block = blocks[0] ?? {};
-      if (blocks.length > 1) {
-        multiBlockNote = ` Found ${blocks.length} blocks in that document — imported block 1 ("${String(block.title ?? "")}"). Paste each remaining block separately to add the rest.`;
-      }
-    }
-    const content = Array.isArray(block.content) ? (block.content as unknown[]) : [];
-    const { steps, summary } = blockContentToSteps(content);
-
-    setEditing({
-      course_id: course.id,
-      level_id: course.level_id,
-      order_index: (q.data?.lessons.length ?? 0),
-      title_sorani: "", title_badini: "", title_en: typeof block.title === "string" ? block.title : "",
-      dialogue_json: [],
-      steps_json: steps,
-    });
-    setImportOpen(false);
-    setImportText("");
-    setOpen(true);
-
-    const parts = [
-      summary.words ? `${summary.words} word${summary.words === 1 ? "" : "s"}` : null,
-      summary.sentences ? `${summary.sentences} sentence${summary.sentences === 1 ? "" : "s"}` : null,
-      summary.images ? `${summary.images} image${summary.images === 1 ? "" : "s"}` : null,
-      summary.tips ? `${summary.tips} tip${summary.tips === 1 ? "" : "s"}` : null,
-    ].filter(Boolean);
-    const skippedParts = Object.entries(summary.skipped).map(([k, v]) => `${v} ${k}`);
-    let msg = parts.length ? `Imported ${parts.join(", ")}.` : "Nothing recognizable to import from that JSON.";
-    if (skippedParts.length) msg += ` Skipped (not supported yet): ${skippedParts.join(", ")}.`;
-    if (summary.assetWarnings) msg += ` ${summary.assetWarnings} image/audio path${summary.assetWarnings === 1 ? "" : "s"} look like local files, not hosted URLs — they won't display until you upload them and paste the real URL.`;
-    msg += multiBlockNote;
-    toast.success(msg);
-  };
-
   return (
     <div>
       <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground mb-3">← Back to courses</button>
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-display text-lg font-semibold">{course.title_sorani}</h3>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setImportOpen(true)}>Import Block (JSON)</Button>
-          <Button onClick={openNew}>{t("add_new")}</Button>
-        </div>
+        <Button onClick={() => setAddOpen(true)}>{t("add_new")}</Button>
       </div>
       <div className="grid gap-3">
         {(q.data?.lessons ?? []).length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
@@ -387,23 +325,17 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
           </Card>
         ))}
       </div>
-      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Import a lesson block as JSON</DialogTitle></DialogHeader>
-          <p className="text-xs text-muted-foreground -mt-2 mb-1">
-            Paste one block — a <code>title</code> plus a <code>content</code> array of word items, shaped like a block from your course JSON. This creates a new lesson with the title and word/sentence/image steps filled in (translate them with AI or edit by hand before saving). <code>review</code> and <code>test</code> items aren't supported yet and will be skipped, with a summary shown after import.
-          </p>
-          <Textarea
-            rows={16}
-            className="font-mono text-xs"
-            dir="ltr"
-            value={importText}
-            onChange={(e) => setImportText(e.target.value)}
-            placeholder={BLOCK_IMPORT_EXAMPLE}
+          <DialogHeader><DialogTitle>Add Lesson</DialogTitle></DialogHeader>
+          <LessonImportPanel
+            course={course}
+            lang={lang}
+            orderStart={q.data?.lessons.length ?? 0}
+            onImported={() => qc.invalidateQueries({ queryKey: ["admin-lessons"] })}
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setImportOpen(false)}>{t("cancel")}</Button>
-            <Button onClick={runImport} disabled={!importText.trim()}>Import</Button>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>{t("cancel")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -419,6 +351,183 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// The entire "Add Lesson" experience: paste one block of JSON (title + content),
+// optionally attach image/audio files that get matched to the JSON by filename,
+// and save. Everything else — the Sorani/Badini title, and any missing Kurdish
+// translation on a word/sentence — is filled in automatically via AI, so nothing
+// but the JSON box and an upload field is ever shown here. The dialog stays open
+// after each save so blocks can be pasted one after another.
+function LessonImportPanel({ course, lang, orderStart, onImported }: { course: { id: string; level_id: string }; lang: string; orderStart: number; onImported: () => void }) {
+  const upsert = useServerFn(adminUpsertLesson);
+  const translate = useServerFn(translateLessonWords);
+  const [jsonText, setJsonText] = useState("");
+  const [assets, setAssets] = useState<Record<string, string>>({});
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [addedCount, setAddedCount] = useState(0);
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      const next = { ...assets };
+      for (const file of Array.from(files)) {
+        const path = `${course.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${file.name}`;
+        const { error } = await supabase.storage.from("lesson-assets").upload(path, file, { upsert: false, contentType: file.type || undefined });
+        if (error) {
+          toast.error(`${file.name}: ${error.message}`);
+          continue;
+        }
+        next[file.name] = supabase.storage.from("lesson-assets").getPublicUrl(path).data.publicUrl;
+      }
+      setAssets(next);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeAsset = (name: string) => setAssets((prev) => { const next = { ...prev }; delete next[name]; return next; });
+
+  const resolveAsset = (ref: string): string => {
+    if (!ref) return "";
+    if (/^https?:\/\//i.test(ref)) return ref;
+    const base = ref.split("/").pop() ?? ref;
+    return assets[base] ?? ref;
+  };
+
+  const runSave = async () => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch {
+      toast.error("That's not valid JSON.");
+      return;
+    }
+    let block = (parsed ?? {}) as Record<string, unknown>;
+    let multiBlockNote = "";
+    if (Array.isArray(block.blocks)) {
+      const blocks = block.blocks as Record<string, unknown>[];
+      block = blocks[0] ?? {};
+      if (blocks.length > 1) {
+        multiBlockNote = ` Found ${blocks.length} blocks in that document — saved block 1 ("${String(block.title ?? "")}"); paste each remaining block separately.`;
+      }
+    }
+    const titleEn = typeof block.title === "string" ? block.title.trim() : "";
+    if (!titleEn) {
+      toast.error('That JSON needs a "title" for the lesson.');
+      return;
+    }
+    const content = Array.isArray(block.content) ? (block.content as unknown[]) : [];
+    const { steps: rawSteps, summary } = blockContentToSteps(content);
+    const steps: LessonStep[] = rawSteps.map((s) => {
+      if (s.type === "image") return { ...s, url: resolveAsset(s.url) };
+      if ((s.type === "word" || s.type === "sentence") && s.audio_url) return { ...s, audio_url: resolveAsset(s.audio_url) };
+      return s;
+    });
+    const unresolvedAssets = steps.filter((s) =>
+      (s.type === "image" && !!s.url && !/^https?:\/\//i.test(s.url)) ||
+      ((s.type === "word" || s.type === "sentence") && !!s.audio_url && !/^https?:\/\//i.test(s.audio_url)),
+    ).length;
+
+    setSaving(true);
+    try {
+      const need: { key: string; text: string }[] = [{ key: "__title__", text: titleEn }];
+      steps.forEach((s, i) => {
+        if ((s.type === "word" || s.type === "sentence") && (!s.kurdish_sorani?.trim() || !s.kurdish_badini?.trim())) {
+          need.push({ key: `s${i}`, text: s.target });
+        }
+      });
+      const res = await translate({ data: { source_language: lang as never, items: need.map((n) => ({ text: n.text })) } });
+      const byKey = new Map(need.map((n, i) => [n.key, res.translations[i]]));
+
+      const titleTr = byKey.get("__title__") ?? { sorani: "", badini: "" };
+      const finalSteps = steps.map((s, i) => {
+        if (s.type !== "word" && s.type !== "sentence") return s;
+        const tr = byKey.get(`s${i}`);
+        if (!tr) return s;
+        return {
+          ...s,
+          kurdish_sorani: s.kurdish_sorani?.trim() || tr.sorani,
+          kurdish_badini: s.kurdish_badini?.trim() || tr.badini,
+        };
+      });
+
+      await upsert({
+        data: {
+          course_id: course.id,
+          level_id: course.level_id,
+          order_index: orderStart + addedCount,
+          title_sorani: titleTr.sorani,
+          title_badini: titleTr.badini,
+          title_en: titleEn,
+          dialogue_json: [],
+          steps_json: finalSteps,
+        } as never,
+      });
+
+      setAddedCount((c) => c + 1);
+      setJsonText("");
+      setAssets({});
+      onImported();
+
+      const parts = [
+        summary.words ? `${summary.words} word${summary.words === 1 ? "" : "s"}` : null,
+        summary.sentences ? `${summary.sentences} sentence${summary.sentences === 1 ? "" : "s"}` : null,
+        summary.images ? `${summary.images} image${summary.images === 1 ? "" : "s"}` : null,
+        summary.tips ? `${summary.tips} tip${summary.tips === 1 ? "" : "s"}` : null,
+      ].filter(Boolean);
+      const skippedParts = Object.entries(summary.skipped).map(([k, v]) => `${v} ${k}`);
+      let msg = `Saved "${titleEn}"` + (parts.length ? ` — ${parts.join(", ")}` : "") + ". Title and any missing translations were filled in with AI.";
+      if (skippedParts.length) msg += ` Skipped (not supported yet): ${skippedParts.join(", ")}.`;
+      if (unresolvedAssets) msg += ` ${unresolvedAssets} image/audio reference${unresolvedAssets === 1 ? "" : "s"} didn't match an uploaded file — upload one with a matching filename, or fix it later by editing this lesson.`;
+      msg += multiBlockNote;
+      toast.success(msg);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-3">
+      <Textarea
+        rows={16}
+        className="font-mono text-xs"
+        dir="ltr"
+        value={jsonText}
+        onChange={(e) => setJsonText(e.target.value)}
+        placeholder={BLOCK_IMPORT_EXAMPLE}
+      />
+      <div>
+        <Label>Images &amp; audio (optional)</Label>
+        <p className="text-xs text-muted-foreground mb-1.5">
+          Upload files with the same name your JSON references — e.g. upload <code>hello.png</code> to fill in an item with <code>"image": "images/hello.png"</code>. Anything you don't upload is left as-is.
+        </p>
+        <Input type="file" multiple accept="image/*,audio/*" disabled={uploading} onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }} />
+        {uploading && <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Uploading…</p>}
+        {Object.keys(assets).length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-2">
+            {Object.keys(assets).map((name) => (
+              <span key={name} className="inline-flex items-center gap-1.5 text-xs bg-muted rounded-full pl-2.5 pr-1.5 py-1">
+                {name}
+                <button type="button" onClick={() => removeAsset(name)} className="text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex items-center justify-between">
+        {addedCount > 0 ? <span className="text-xs text-muted-foreground">{addedCount} lesson{addedCount === 1 ? "" : "s"} added this session</span> : <span />}
+        <Button onClick={runSave} disabled={saving || uploading || !jsonText.trim()}>
+          {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+          Save Lesson
+        </Button>
+      </div>
     </div>
   );
 }
