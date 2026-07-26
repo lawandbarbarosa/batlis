@@ -38,7 +38,7 @@ function Dashboard() {
   });
 
   useEffect(() => {
-    if (!isLoading && data && !data.activeLang) {
+    if (!isLoading && data && !data.profile?.onboarding_completed_at) {
       navigate({ to: "/onboarding" });
     }
   }, [data, isLoading, navigate]);
