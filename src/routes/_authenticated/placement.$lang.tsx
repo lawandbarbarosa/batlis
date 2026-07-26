@@ -11,9 +11,11 @@ import { Progress } from "@/components/ui/progress";
 import { Loader2, CheckCircle2, ArrowLeft } from "lucide-react";
 
 const paramsSchema = z.object({ lang: z.enum(["en", "de", "ar", "ko"]) });
+const searchSchema = z.object({ from: z.enum(["onboarding"]).optional() });
 
 export const Route = createFileRoute("/_authenticated/placement/$lang")({
   parseParams: (p) => paramsSchema.parse(p),
+  validateSearch: (s) => searchSchema.parse(s),
   component: Placement,
 });
 
@@ -21,10 +23,12 @@ interface Q { id: string; difficulty_band: string; question_json: { prompt: stri
 
 function Placement() {
   const { lang } = Route.useParams();
+  const { from } = Route.useSearch();
   const { t } = useDialect();
   const navigate = useNavigate();
   const startFn = useServerFn(startPlacement);
   const submitFn = useServerFn(submitPlacement);
+  const continueTo = from === "onboarding" ? "/onboarding/commitment" : "/dashboard";
 
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [idx, setIdx] = useState(0);
@@ -64,7 +68,7 @@ function Placement() {
             <div className="mt-2 font-display text-6xl font-bold text-primary-ink">{result.assigned}</div>
           </div>
           <Button asChild size="lg" className="mt-8 gradient-brand">
-            <a href="/dashboard"><ArrowLeft className="ml-2 h-4 w-4" />{t("go_to_dashboard")}</a>
+            <a href={continueTo}><ArrowLeft className="ml-2 h-4 w-4" />{from === "onboarding" ? t("continue") : t("go_to_dashboard")}</a>
           </Button>
         </div>
       </AppShell>
@@ -76,7 +80,7 @@ function Placement() {
       <AppShell>
         <div className="max-w-md mx-auto text-center py-16">
           <p className="text-muted-foreground">{t("no_words")}</p>
-          <Button asChild className="mt-6"><a href="/dashboard">{t("skip_placement")}</a></Button>
+          <Button asChild className="mt-6"><a href={continueTo}>{t("skip_placement")}</a></Button>
         </div>
       </AppShell>
     );
