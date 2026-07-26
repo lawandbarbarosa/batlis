@@ -82,6 +82,86 @@ export const adminListVideos = createServerFn({ method: "POST" })
     return { videos: videos ?? [] };
   });
 
+// Powers Admin > Highlights: every highlighted word across every video's
+// transcript (all languages), plus two running totals — total words
+// transcribed and total video runtime. Both totals are computed live from
+// transcript_json / duration_seconds on every request rather than stored
+// anywhere, so they automatically include videos uploaded/transcribed after
+// this was built, with no separate counter to keep in sync.
+interface VideoInsightHighlight {
+  id: string;
+  start_index: number;
+  end_index: number;
+  word: string;
+  part_of_speech?: string | null;
+  meaning_en?: string | null;
+  meaning_ku_sorani?: string | null;
+  meaning_ku_badini?: string | null;
+}
+interface VideoInsightLine {
+  en?: string;
+  highlights?: VideoInsightHighlight[];
+}
+
+export const adminGetVideoInsights = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const { data: videos } = await context.supabase
+      .from("videos")
+      .select("id, title, language_code, level_cefr, category, duration_seconds, transcript_json")
+      .order("created_at", { ascending: false });
+
+    const rows = videos ?? [];
+    let totalWordsTranscribed = 0;
+    let totalDurationSeconds = 0;
+    let videosMissingDuration = 0;
+    const highlights: Array<{
+      key: string;
+      word: string;
+      part_of_speech: string;
+      meaning_en: string;
+      meaning_ku_sorani: string;
+      meaning_ku_badini: string;
+      video_id: string;
+      video_title: string;
+      language_code: string;
+      level_cefr: string;
+    }> = [];
+
+    for (const v of rows) {
+      if (v.duration_seconds) totalDurationSeconds += v.duration_seconds;
+      else videosMissingDuration += 1;
+
+      const lines = (Array.isArray(v.transcript_json) ? v.transcript_json : []) as unknown as VideoInsightLine[];
+      for (const line of lines) {
+        totalWordsTranscribed += (line.en ?? "").split(/\s+/).filter(Boolean).length;
+        for (const h of line.highlights ?? []) {
+          highlights.push({
+            key: `${v.id}:${h.id}`,
+            word: h.word,
+            part_of_speech: h.part_of_speech || "other",
+            meaning_en: h.meaning_en || "",
+            meaning_ku_sorani: h.meaning_ku_sorani || "",
+            meaning_ku_badini: h.meaning_ku_badini || "",
+            video_id: v.id,
+            video_title: v.title,
+            language_code: v.language_code,
+            level_cefr: v.level_cefr,
+          });
+        }
+      }
+    }
+
+    return {
+      totalVideos: rows.length,
+      totalWordsTranscribed,
+      totalDurationSeconds,
+      videosMissingDuration,
+      highlights,
+    };
+  });
+
 export const adminListBooks = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ language: langEnum }).parse(d))
