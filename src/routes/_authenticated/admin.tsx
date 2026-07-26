@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +22,7 @@ import {
   adminListCourses,
   adminListVocab,
   adminListVideos,
+  adminGetVideoInsights,
   adminListBooks,
   adminListUsers,
   adminUpsertLesson,
@@ -52,7 +54,7 @@ export const Route = createFileRoute("/_authenticated/admin")({
   component: AdminPage,
 });
 
-type Tab = "lessons" | "vocab" | "videos" | "books" | "users";
+type Tab = "lessons" | "vocab" | "videos" | "books" | "highlights" | "users";
 const LANGS = ["en", "de", "ar", "ko"] as const;
 const CEFRS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
 const VIDEO_CATEGORIES = ["podcast", "animation", "movie", "show", "talking", "music", "documentary", "news", "other"] as const;
@@ -66,7 +68,7 @@ function AdminPage() {
         <h1 className="text-3xl font-display font-bold">{t("admin")}</h1>
       </div>
       <div className="mb-6 flex gap-2 flex-wrap">
-        {(["lessons", "vocab", "videos", "books", "users"] as Tab[]).map((v) => (
+        {(["lessons", "vocab", "videos", "books", "highlights", "users"] as Tab[]).map((v) => (
           <Button key={v} variant={tab === v ? "default" : "outline"} onClick={() => setTab(v)}>
             {t(`admin_${v}` as never)}
           </Button>
@@ -76,6 +78,7 @@ function AdminPage() {
       {tab === "vocab" && <VocabTab />}
       {tab === "videos" && <VideosTab />}
       {tab === "books" && <BooksTab />}
+      {tab === "highlights" && <HighlightsTab />}
       {tab === "users" && <UsersTab />}
     </AppShell>
   );
@@ -811,6 +814,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: string)
   });
 }
 
+// Reads a video file's duration in the browser (via a throwaway <video>
+// element's loadedmetadata event) so it can be saved to duration_seconds
+// automatically on upload — nothing server-side ever inspects the file, and
+// admins never have to type a duration in by hand. Resolves to null if the
+// browser can't read it (corrupt/unsupported file), in which case the video
+// still uploads fine, it just won't count toward the "total video length"
+// stat on Admin > Highlights until a duration is available.
+function readVideoDuration(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const el = document.createElement("video");
+    el.preload = "metadata";
+    const cleanup = (result: number | null) => { URL.revokeObjectURL(url); resolve(result); };
+    el.onloadedmetadata = () => cleanup(Number.isFinite(el.duration) ? Math.round(el.duration) : null);
+    el.onerror = () => cleanup(null);
+    el.src = url;
+  });
+}
+
 function VideoForm({ value, onChange }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
   const { t } = useDialect();
   const set = (k: string, v: unknown) => onChange({ ...value, [k]: v });
@@ -842,7 +864,11 @@ function VideoForm({ value, onChange }: { value: Record<string, unknown>; onChan
       // fully and successfully uploaded, so a failed/timed-out replacement never clobbers a
       // working video_path. The old file is left in storage untouched (nothing else — the
       // transcript, translations, title, etc. — is modified by this).
-      set("video_path", path);
+      // video_path and duration_seconds are merged into one onChange call (rather than two
+      // separate set() calls) since set()'s closure over `value` would otherwise go stale
+      // while awaiting the duration read, silently dropping the video_path update.
+      const seconds = await readVideoDuration(file);
+      onChange({ ...value, video_path: path, ...(seconds ? { duration_seconds: seconds } : {}) });
       toast.success("Uploaded");
     } catch (e) {
       toast.error((e as Error).message || "Upload failed. Please try again.");
@@ -1852,6 +1878,129 @@ function BookImageBlock({ paragraph, onChange }: { paragraph: BookParagraph; onC
       )}
       {uploading && <p className="text-xs flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" /> Uploading…</p>}
       <Input placeholder="Caption (optional)" value={paragraph.caption ?? ""} onChange={(e) => onChange({ caption: e.target.value })} />
+    </div>
+  );
+}
+
+function formatDuration(totalSeconds: number): string {
+  if (!totalSeconds) return "0m";
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+/**
+ * Admin > Highlights: every highlighted word across every video's transcript
+ * (all languages, all levels) in one searchable table, plus two live counters
+ * — total words transcribed and total video runtime — sourced from
+ * adminGetVideoInsights. Both counters recompute from whatever's actually in
+ * the database on every load, so uploading/transcribing/highlighting more
+ * videos later just makes the numbers grow; nothing here needs to be
+ * manually kept in sync.
+ */
+function HighlightsTab() {
+  const { t } = useDialect();
+  const fn = useServerFn(adminGetVideoInsights);
+  const q = useQuery({ queryKey: ["admin-video-insights"], queryFn: () => fn({}) });
+  const [search, setSearch] = useState("");
+  const [langFilter, setLangFilter] = useState("all");
+
+  const highlights = q.data?.highlights ?? [];
+  const filtered = highlights.filter((h) => {
+    if (langFilter !== "all" && h.language_code !== langFilter) return false;
+    const needle = search.trim().toLowerCase();
+    if (!needle) return true;
+    return (
+      h.word.toLowerCase().includes(needle) ||
+      h.meaning_en.toLowerCase().includes(needle) ||
+      h.meaning_ku_sorani.includes(search.trim()) ||
+      h.meaning_ku_badini.includes(search.trim()) ||
+      h.video_title.toLowerCase().includes(needle)
+    );
+  });
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground">{t("admin_highlighted_words")}</div>
+            <div className="text-3xl font-display font-bold">{q.isLoading ? "—" : highlights.length.toLocaleString()}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground">{t("admin_words_transcribed")}</div>
+            <div className="text-3xl font-display font-bold">{q.isLoading ? "—" : (q.data?.totalWordsTranscribed ?? 0).toLocaleString()}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground">{t("admin_total_video_length")}</div>
+            <div className="text-3xl font-display font-bold">{q.isLoading ? "—" : formatDuration(q.data?.totalDurationSeconds ?? 0)}</div>
+            {!!q.data?.videosMissingDuration && (
+              <div className="text-[11px] text-muted-foreground mt-1">
+                {q.data.videosMissingDuration} of {q.data.totalVideos} video{q.data.totalVideos === 1 ? "" : "s"} uploaded before duration tracking — those aren't counted yet.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        <Input
+          placeholder="Search words, meanings, or video title…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-xs"
+        />
+        <Select value={langFilter} onValueChange={setLangFilter}>
+          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All languages</SelectItem>
+            {LANGS.map((l) => <SelectItem key={l} value={l}>{l.toUpperCase()}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {q.isLoading ? (
+        <p className="text-muted-foreground">{t("loading")}</p>
+      ) : filtered.length === 0 ? (
+        <p className="text-muted-foreground">{t("no_data")}</p>
+      ) : (
+        <div className="rounded-md border overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Word</TableHead>
+                <TableHead>Meaning (English)</TableHead>
+                <TableHead>Meaning (Kurdish)</TableHead>
+                <TableHead>Video</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((h) => (
+                <TableRow key={h.key}>
+                  <TableCell>
+                    <div className="font-medium">{h.word}</div>
+                    <Badge variant="secondary" className="mt-1 text-[10px] font-normal">{h.part_of_speech}</Badge>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground max-w-[240px]">{h.meaning_en || "—"}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground max-w-[240px]">
+                    <div dir="rtl">{h.meaning_ku_sorani || "—"}</div>
+                    {h.meaning_ku_badini && <div dir="rtl" className="opacity-70">{h.meaning_ku_badini}</div>}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {h.video_title}
+                    <span className="block uppercase">{h.language_code} · {h.level_cefr}</span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 }
