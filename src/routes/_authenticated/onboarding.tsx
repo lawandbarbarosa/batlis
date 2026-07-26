@@ -1,64 +1,15 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
-import { updateDialect } from "@/lib/learn.functions";
-import { useDialect, type Dialect } from "@/hooks/use-dialect";
-import { OnboardingShell, OnboardingHeading, OptionCard, ConfirmationPanel } from "@/components/onboarding-ui";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 
+// Pure layout route. Every step under /onboarding/* (including the index
+// step defined in onboarding.index.tsx) is a file-based child of this route
+// because they all share the "onboarding" filename prefix — TanStack Router
+// treats that as a parent/child relationship regardless of whether the
+// child renders as a full page. This file's ONLY job is to render the
+// <Outlet /> that lets those children actually appear; without it, every
+// navigation between onboarding steps changes the URL but leaves the
+// previous screen frozen on screen. Do not add page content or layout
+// chrome here — that belongs in the individual step files, each of which
+// already wraps itself in <OnboardingShell>.
 export const Route = createFileRoute("/_authenticated/onboarding")({
-  component: OnboardingLanguageStep,
+  component: () => <Outlet />,
 });
-
-// Written in each option's own script on purpose — this is the one screen in
-// the whole wizard where the labels must NOT run through t(), since the
-// person hasn't chosen a UI language yet. "English" has to say "English"
-// regardless of whatever dialect happens to be active by default.
-const DIALECT_OPTIONS: { id: Dialect; label: string; sub: string }[] = [
-  { id: "sorani", label: "کوردیی سۆرانی", sub: "Central Kurdish · Sorani" },
-  { id: "badini", label: "کوردیی بادینی", sub: "Northern Kurdish · Badini" },
-  { id: "english", label: "English", sub: "English" },
-];
-
-/** Step 1 of 5: which language the app itself should speak to them in. */
-function OnboardingLanguageStep() {
-  const { t, dialect, setDialect } = useDialect();
-  const navigate = useNavigate();
-  const setDia = useServerFn(updateDialect);
-  const [picked, setPicked] = useState<Dialect | null>(null);
-
-  const mut = useMutation({
-    mutationFn: (d: Dialect) => setDia({ data: { dialect: d } }),
-    onSuccess: (_r, d) => setPicked(d),
-  });
-
-  if (picked) {
-    return (
-      <OnboardingShell step={0}>
-        <ConfirmationPanel
-          title={t("onboarding_ui_lang_confirm_title")}
-          body={t("onboarding_ui_lang_confirm_body")}
-          ctaLabel={t("continue")}
-          onContinue={() => navigate({ to: "/onboarding/target" })}
-        />
-      </OnboardingShell>
-    );
-  }
-
-  return (
-    <OnboardingShell step={0}>
-      <OnboardingHeading title={t("onboarding_ui_lang_title")} sub={t("onboarding_ui_lang_sub")} />
-      <div className="grid gap-3">
-        {DIALECT_OPTIONS.map((opt) => (
-          <OptionCard
-            key={opt.id}
-            title={opt.label}
-            subtitle={opt.sub}
-            selected={dialect === opt.id}
-            onClick={() => { setDialect(opt.id); mut.mutate(opt.id); }}
-          />
-        ))}
-      </div>
-    </OnboardingShell>
-  );
-}
