@@ -288,6 +288,8 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
   const q = useQuery({ queryKey: ["admin-lessons", course.id], queryFn: () => list({ data: { courseId: course.id } }) });
   const [editing, setEditing] = useState<null | Record<string, unknown>>(null);
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
 
   const save = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => upsert({ data: payload as never }),
@@ -312,12 +314,61 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
     setOpen(true);
   };
 
+  const runImport = () => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(importText);
+    } catch {
+      toast.error("That's not valid JSON.");
+      return;
+    }
+    let block = (parsed ?? {}) as Record<string, unknown>;
+    let multiBlockNote = "";
+    if (Array.isArray(block.blocks)) {
+      const blocks = block.blocks as Record<string, unknown>[];
+      block = blocks[0] ?? {};
+      if (blocks.length > 1) {
+        multiBlockNote = ` Found ${blocks.length} blocks in that document — imported block 1 ("${String(block.title ?? "")}"). Paste each remaining block separately to add the rest.`;
+      }
+    }
+    const content = Array.isArray(block.content) ? (block.content as unknown[]) : [];
+    const { steps, summary } = blockContentToSteps(content);
+
+    setEditing({
+      course_id: course.id,
+      level_id: course.level_id,
+      order_index: (q.data?.lessons.length ?? 0),
+      title_sorani: "", title_badini: "", title_en: typeof block.title === "string" ? block.title : "",
+      dialogue_json: [],
+      steps_json: steps,
+    });
+    setImportOpen(false);
+    setImportText("");
+    setOpen(true);
+
+    const parts = [
+      summary.words ? `${summary.words} word${summary.words === 1 ? "" : "s"}` : null,
+      summary.sentences ? `${summary.sentences} sentence${summary.sentences === 1 ? "" : "s"}` : null,
+      summary.images ? `${summary.images} image${summary.images === 1 ? "" : "s"}` : null,
+      summary.tips ? `${summary.tips} tip${summary.tips === 1 ? "" : "s"}` : null,
+    ].filter(Boolean);
+    const skippedParts = Object.entries(summary.skipped).map(([k, v]) => `${v} ${k}`);
+    let msg = parts.length ? `Imported ${parts.join(", ")}.` : "Nothing recognizable to import from that JSON.";
+    if (skippedParts.length) msg += ` Skipped (not supported yet): ${skippedParts.join(", ")}.`;
+    if (summary.assetWarnings) msg += ` ${summary.assetWarnings} image/audio path${summary.assetWarnings === 1 ? "" : "s"} look like local files, not hosted URLs — they won't display until you upload them and paste the real URL.`;
+    msg += multiBlockNote;
+    toast.success(msg);
+  };
+
   return (
     <div>
       <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground mb-3">← Back to courses</button>
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-display text-lg font-semibold">{course.title_sorani}</h3>
-        <Button onClick={openNew}>{t("add_new")}</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)}>Import Block (JSON)</Button>
+          <Button onClick={openNew}>{t("add_new")}</Button>
+        </div>
       </div>
       <div className="grid gap-3">
         {(q.data?.lessons ?? []).length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
@@ -336,6 +387,26 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
           </Card>
         ))}
       </div>
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Import a lesson block as JSON</DialogTitle></DialogHeader>
+          <p className="text-xs text-muted-foreground -mt-2 mb-1">
+            Paste one block — a <code>title</code> plus a <code>content</code> array of word items, shaped like a block from your course JSON. This creates a new lesson with the title and word/sentence/image steps filled in (translate them with AI or edit by hand before saving). <code>review</code> and <code>test</code> items aren't supported yet and will be skipped, with a summary shown after import.
+          </p>
+          <Textarea
+            rows={16}
+            className="font-mono text-xs"
+            dir="ltr"
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            placeholder={BLOCK_IMPORT_EXAMPLE}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportOpen(false)}>{t("cancel")}</Button>
+            <Button onClick={runImport} disabled={!importText.trim()}>Import</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{t("admin_lessons")}</DialogTitle></DialogHeader>
@@ -370,6 +441,75 @@ const JSON_STEPS_EXAMPLE = `[
   { "type": "image", "url": "https://.../hello.png", "caption": "optional" },
   { "type": "tip", "text": "optional grammar aside" }
 ]`;
+
+const BLOCK_IMPORT_EXAMPLE = `{
+  "title": "Greetings",
+  "content": [
+    { "type": "word", "word": "Hello", "translation": "سڵاو", "image": "images/hello.png", "sentence": "Hello, my name is John." },
+    { "type": "word", "word": "Goodbye", "translation": "خواحافیز", "sentence": "Goodbye! See you tomorrow." }
+  ]
+}`;
+
+type ImportSummary = { words: number; sentences: number; images: number; tips: number; assetWarnings: number; skipped: Record<string, number> };
+
+// Accepts either the app's own step shape (target/kurdish_sorani/kurdish_badini/audio_url)
+// or the more natural "word bundle" shape from a hand-authored course JSON
+// (word/translation/image/audio/sentence combined on one object) and normalizes
+// either into the app's LessonStep[]. review/test/exam items aren't supported
+// yet, so they're counted and skipped rather than silently dropped.
+function blockContentToSteps(content: unknown[]): { steps: LessonStep[]; summary: ImportSummary } {
+  const steps: LessonStep[] = [];
+  const summary: ImportSummary = { words: 0, sentences: 0, images: 0, tips: 0, assetWarnings: 0, skipped: {} };
+  const asStr = (v: unknown): string => (typeof v === "string" ? v : v == null ? "" : String(v));
+  const asAsset = (v: unknown): string => {
+    const s = asStr(v);
+    if (s && !/^https?:\/\//i.test(s)) summary.assetWarnings++;
+    return s;
+  };
+
+  for (const raw of content ?? []) {
+    const item = (raw ?? {}) as Record<string, unknown>;
+    const type = typeof item.type === "string" ? item.type : undefined;
+
+    if (type === "word") {
+      steps.push({
+        type: "word",
+        target: asStr(item.word ?? item.target),
+        kurdish_sorani: asStr(item.translation ?? item.kurdish_sorani),
+        kurdish_badini: asStr(item.kurdish_badini),
+        audio_url: item.audio || item.audio_url ? asAsset(item.audio ?? item.audio_url) : "",
+      });
+      summary.words++;
+      if (item.image) {
+        steps.push({ type: "image", url: asAsset(item.image), caption: "" });
+        summary.images++;
+      }
+      if (item.sentence) {
+        steps.push({ type: "sentence", target: asStr(item.sentence), kurdish_sorani: "", kurdish_badini: "", audio_url: "" });
+        summary.sentences++;
+      }
+    } else if (type === "sentence") {
+      steps.push({
+        type: "sentence",
+        target: asStr(item.target ?? item.sentence),
+        kurdish_sorani: asStr(item.kurdish_sorani ?? item.translation),
+        kurdish_badini: asStr(item.kurdish_badini),
+        audio_url: item.audio || item.audio_url ? asAsset(item.audio ?? item.audio_url) : "",
+      });
+      summary.sentences++;
+    } else if (type === "image") {
+      steps.push({ type: "image", url: asAsset(item.url ?? item.image), caption: asStr(item.caption) });
+      summary.images++;
+    } else if (type === "tip") {
+      steps.push({ type: "tip", text: asStr(item.text) });
+      summary.tips++;
+    } else {
+      const key = type ?? "unknown";
+      summary.skipped[key] = (summary.skipped[key] ?? 0) + 1;
+    }
+  }
+  return { steps, summary };
+}
 
 function LessonStepsEditor({ value, onChange, sourceLanguage }: { value: LessonStep[]; onChange: (v: LessonStep[]) => void; sourceLanguage: string }) {
   const steps = value ?? [];
@@ -544,14 +684,41 @@ function LessonStepsEditor({ value, onChange, sourceLanguage }: { value: LessonS
 
 function LessonForm({ value, onChange, lang }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void; lang: string }) {
   const set = (k: string, v: unknown) => onChange({ ...value, [k]: v });
+  const translate = useServerFn(translateLessonWords);
+  const [translatingTitle, setTranslatingTitle] = useState(false);
+
+  const translateTitle = async () => {
+    const titleEn = ((value.title_en ?? "") as string).trim();
+    if (!titleEn) {
+      toast.error("Type an English title first.");
+      return;
+    }
+    setTranslatingTitle(true);
+    try {
+      const res = await translate({ data: { source_language: lang as never, items: [{ text: titleEn }] } });
+      const tr = res.translations[0];
+      onChange({ ...value, title_sorani: tr.sorani, title_badini: tr.badini });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setTranslatingTitle(false);
+    }
+  };
+
   return (
     <div className="grid gap-3">
+      <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
+        <div><Label>Title (English)</Label><Input value={(value.title_en ?? "") as string} onChange={(e) => set("title_en", e.target.value)} /></div>
+        <Button type="button" variant="outline" size="sm" onClick={translateTitle} disabled={translatingTitle}>
+          {translatingTitle ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
+          Translate title
+        </Button>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div><Label>Order</Label><Input type="number" value={value.order_index as number} onChange={(e) => set("order_index", Number(e.target.value))} /></div>
         <div><Label>Title (Sorani)</Label><Input value={(value.title_sorani ?? "") as string} onChange={(e) => set("title_sorani", e.target.value)} /></div>
       </div>
       <div><Label>Title (Badini)</Label><Input value={(value.title_badini ?? "") as string} onChange={(e) => set("title_badini", e.target.value)} /></div>
-      <div><Label>Title (English)</Label><Input value={(value.title_en ?? "") as string} onChange={(e) => set("title_en", e.target.value)} /></div>
       <div><Label>Summary (Sorani)</Label><Textarea value={(value.summary_sorani ?? "") as string} onChange={(e) => set("summary_sorani", e.target.value)} /></div>
       <div><Label>Summary (Badini)</Label><Textarea value={(value.summary_badini ?? "") as string} onChange={(e) => set("summary_badini", e.target.value)} /></div>
       <div><Label>Summary (English)</Label><Textarea value={(value.summary_en ?? "") as string} onChange={(e) => set("summary_en", e.target.value)} /></div>
