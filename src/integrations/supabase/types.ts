@@ -352,9 +352,12 @@ export type Database = {
           display_name: string | null
           id: string
           last_active_date: string | null
+          learning_purpose: Database["public"]["Enums"]["learning_purpose"] | null
+          onboarding_completed_at: string | null
           streak_count: number
           ui_dialect: Database["public"]["Enums"]["ui_dialect"]
           updated_at: string
+          weekly_days_goal: number
         }
         Insert: {
           active_target_lang?: Database["public"]["Enums"]["target_lang"] | null
@@ -363,9 +366,12 @@ export type Database = {
           display_name?: string | null
           id: string
           last_active_date?: string | null
+          learning_purpose?: Database["public"]["Enums"]["learning_purpose"] | null
+          onboarding_completed_at?: string | null
           streak_count?: number
           ui_dialect?: Database["public"]["Enums"]["ui_dialect"]
           updated_at?: string
+          weekly_days_goal?: number
         }
         Update: {
           active_target_lang?: Database["public"]["Enums"]["target_lang"] | null
@@ -374,9 +380,12 @@ export type Database = {
           display_name?: string | null
           id?: string
           last_active_date?: string | null
+          learning_purpose?: Database["public"]["Enums"]["learning_purpose"] | null
+          onboarding_completed_at?: string | null
           streak_count?: number
           ui_dialect?: Database["public"]["Enums"]["ui_dialect"]
           updated_at?: string
+          weekly_days_goal?: number
         }
         Relationships: []
       }
@@ -647,6 +656,13 @@ export type Database = {
         | "fill_blank"
         | "listening"
         | "translate"
+      learning_purpose:
+        | "travel"
+        | "career"
+        | "study"
+        | "move_abroad"
+        | "connect"
+        | "fun"
       target_lang: "en" | "de" | "ar" | "ko"
       ui_dialect: "sorani" | "badini" | "english"
       video_category:
@@ -793,6 +809,14 @@ export const Constants = {
         "fill_blank",
         "listening",
         "translate",
+      ],
+      learning_purpose: [
+        "travel",
+        "career",
+        "study",
+        "move_abroad",
+        "connect",
+        "fun",
       ],
       target_lang: ["en", "de", "ar", "ko"],
       ui_dialect: ["sorani", "badini", "english"],
