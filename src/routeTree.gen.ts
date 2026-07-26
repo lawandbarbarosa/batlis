@@ -24,6 +24,10 @@ import { Route as AuthenticatedVocabLangRouteImport } from './routes/_authentica
 import { Route as AuthenticatedVideosLangRouteImport } from './routes/_authenticated/videos.$lang'
 import { Route as AuthenticatedVideoIdRouteImport } from './routes/_authenticated/video.$id'
 import { Route as AuthenticatedPlacementLangRouteImport } from './routes/_authenticated/placement.$lang'
+import { Route as AuthenticatedOnboardingTargetRouteImport } from './routes/_authenticated/onboarding.target'
+import { Route as AuthenticatedOnboardingPurposeRouteImport } from './routes/_authenticated/onboarding.purpose'
+import { Route as AuthenticatedOnboardingLevelRouteImport } from './routes/_authenticated/onboarding.level'
+import { Route as AuthenticatedOnboardingCommitmentRouteImport } from './routes/_authenticated/onboarding.commitment'
 import { Route as AuthenticatedLessonIdRouteImport } from './routes/_authenticated/lesson.$id'
 import { Route as AuthenticatedLearnLangRouteImport } from './routes/_authenticated/learn.$lang'
 import { Route as AuthenticatedCourseIdRouteImport } from './routes/_authenticated/course.$id'
@@ -105,6 +109,30 @@ const AuthenticatedPlacementLangRoute =
     path: '/placement/$lang',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedOnboardingTargetRoute =
+  AuthenticatedOnboardingTargetRouteImport.update({
+    id: '/target',
+    path: '/target',
+    getParentRoute: () => AuthenticatedOnboardingRoute,
+  } as any)
+const AuthenticatedOnboardingPurposeRoute =
+  AuthenticatedOnboardingPurposeRouteImport.update({
+    id: '/purpose',
+    path: '/purpose',
+    getParentRoute: () => AuthenticatedOnboardingRoute,
+  } as any)
+const AuthenticatedOnboardingLevelRoute =
+  AuthenticatedOnboardingLevelRouteImport.update({
+    id: '/level',
+    path: '/level',
+    getParentRoute: () => AuthenticatedOnboardingRoute,
+  } as any)
+const AuthenticatedOnboardingCommitmentRoute =
+  AuthenticatedOnboardingCommitmentRouteImport.update({
+    id: '/commitment',
+    path: '/commitment',
+    getParentRoute: () => AuthenticatedOnboardingRoute,
+  } as any)
 const AuthenticatedLessonIdRoute = AuthenticatedLessonIdRouteImport.update({
   id: '/lesson/$id',
   path: '/lesson/$id',
@@ -139,7 +167,7 @@ export interface FileRoutesByFullPath {
   '/pricing': typeof PricingRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/onboarding': typeof AuthenticatedOnboardingRoute
+  '/onboarding': typeof AuthenticatedOnboardingRouteWithChildren
   '/settings': typeof AuthenticatedSettingsRoute
   '/speak': typeof AuthenticatedSpeakRoute
   '/book/$id': typeof AuthenticatedBookIdRoute
@@ -147,6 +175,10 @@ export interface FileRoutesByFullPath {
   '/course/$id': typeof AuthenticatedCourseIdRoute
   '/learn/$lang': typeof AuthenticatedLearnLangRoute
   '/lesson/$id': typeof AuthenticatedLessonIdRoute
+  '/onboarding/commitment': typeof AuthenticatedOnboardingCommitmentRoute
+  '/onboarding/level': typeof AuthenticatedOnboardingLevelRoute
+  '/onboarding/purpose': typeof AuthenticatedOnboardingPurposeRoute
+  '/onboarding/target': typeof AuthenticatedOnboardingTargetRoute
   '/placement/$lang': typeof AuthenticatedPlacementLangRoute
   '/video/$id': typeof AuthenticatedVideoIdRoute
   '/videos/$lang': typeof AuthenticatedVideosLangRoute
@@ -160,7 +192,7 @@ export interface FileRoutesByTo {
   '/pricing': typeof PricingRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/onboarding': typeof AuthenticatedOnboardingRoute
+  '/onboarding': typeof AuthenticatedOnboardingRouteWithChildren
   '/settings': typeof AuthenticatedSettingsRoute
   '/speak': typeof AuthenticatedSpeakRoute
   '/book/$id': typeof AuthenticatedBookIdRoute
@@ -168,6 +200,10 @@ export interface FileRoutesByTo {
   '/course/$id': typeof AuthenticatedCourseIdRoute
   '/learn/$lang': typeof AuthenticatedLearnLangRoute
   '/lesson/$id': typeof AuthenticatedLessonIdRoute
+  '/onboarding/commitment': typeof AuthenticatedOnboardingCommitmentRoute
+  '/onboarding/level': typeof AuthenticatedOnboardingLevelRoute
+  '/onboarding/purpose': typeof AuthenticatedOnboardingPurposeRoute
+  '/onboarding/target': typeof AuthenticatedOnboardingTargetRoute
   '/placement/$lang': typeof AuthenticatedPlacementLangRoute
   '/video/$id': typeof AuthenticatedVideoIdRoute
   '/videos/$lang': typeof AuthenticatedVideosLangRoute
@@ -183,7 +219,7 @@ export interface FileRoutesById {
   '/pricing': typeof PricingRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
-  '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
+  '/_authenticated/onboarding': typeof AuthenticatedOnboardingRouteWithChildren
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/speak': typeof AuthenticatedSpeakRoute
   '/_authenticated/book/$id': typeof AuthenticatedBookIdRoute
@@ -191,6 +227,10 @@ export interface FileRoutesById {
   '/_authenticated/course/$id': typeof AuthenticatedCourseIdRoute
   '/_authenticated/learn/$lang': typeof AuthenticatedLearnLangRoute
   '/_authenticated/lesson/$id': typeof AuthenticatedLessonIdRoute
+  '/_authenticated/onboarding/commitment': typeof AuthenticatedOnboardingCommitmentRoute
+  '/_authenticated/onboarding/level': typeof AuthenticatedOnboardingLevelRoute
+  '/_authenticated/onboarding/purpose': typeof AuthenticatedOnboardingPurposeRoute
+  '/_authenticated/onboarding/target': typeof AuthenticatedOnboardingTargetRoute
   '/_authenticated/placement/$lang': typeof AuthenticatedPlacementLangRoute
   '/_authenticated/video/$id': typeof AuthenticatedVideoIdRoute
   '/_authenticated/videos/$lang': typeof AuthenticatedVideosLangRoute
@@ -214,6 +254,10 @@ export interface FileRouteTypes {
     | '/course/$id'
     | '/learn/$lang'
     | '/lesson/$id'
+    | '/onboarding/commitment'
+    | '/onboarding/level'
+    | '/onboarding/purpose'
+    | '/onboarding/target'
     | '/placement/$lang'
     | '/video/$id'
     | '/videos/$lang'
@@ -235,6 +279,10 @@ export interface FileRouteTypes {
     | '/course/$id'
     | '/learn/$lang'
     | '/lesson/$id'
+    | '/onboarding/commitment'
+    | '/onboarding/level'
+    | '/onboarding/purpose'
+    | '/onboarding/target'
     | '/placement/$lang'
     | '/video/$id'
     | '/videos/$lang'
@@ -257,6 +305,10 @@ export interface FileRouteTypes {
     | '/_authenticated/course/$id'
     | '/_authenticated/learn/$lang'
     | '/_authenticated/lesson/$id'
+    | '/_authenticated/onboarding/commitment'
+    | '/_authenticated/onboarding/level'
+    | '/_authenticated/onboarding/purpose'
+    | '/_authenticated/onboarding/target'
     | '/_authenticated/placement/$lang'
     | '/_authenticated/video/$id'
     | '/_authenticated/videos/$lang'
@@ -379,6 +431,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPlacementLangRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/onboarding/target': {
+      id: '/_authenticated/onboarding/target'
+      path: '/target'
+      fullPath: '/onboarding/target'
+      preLoaderRoute: typeof AuthenticatedOnboardingTargetRouteImport
+      parentRoute: typeof AuthenticatedOnboardingRoute
+    }
+    '/_authenticated/onboarding/purpose': {
+      id: '/_authenticated/onboarding/purpose'
+      path: '/purpose'
+      fullPath: '/onboarding/purpose'
+      preLoaderRoute: typeof AuthenticatedOnboardingPurposeRouteImport
+      parentRoute: typeof AuthenticatedOnboardingRoute
+    }
+    '/_authenticated/onboarding/level': {
+      id: '/_authenticated/onboarding/level'
+      path: '/level'
+      fullPath: '/onboarding/level'
+      preLoaderRoute: typeof AuthenticatedOnboardingLevelRouteImport
+      parentRoute: typeof AuthenticatedOnboardingRoute
+    }
+    '/_authenticated/onboarding/commitment': {
+      id: '/_authenticated/onboarding/commitment'
+      path: '/commitment'
+      fullPath: '/onboarding/commitment'
+      preLoaderRoute: typeof AuthenticatedOnboardingCommitmentRouteImport
+      parentRoute: typeof AuthenticatedOnboardingRoute
+    }
     '/_authenticated/lesson/$id': {
       id: '/_authenticated/lesson/$id'
       path: '/lesson/$id'
@@ -417,10 +497,31 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthenticatedOnboardingRouteChildren {
+  AuthenticatedOnboardingCommitmentRoute: typeof AuthenticatedOnboardingCommitmentRoute
+  AuthenticatedOnboardingLevelRoute: typeof AuthenticatedOnboardingLevelRoute
+  AuthenticatedOnboardingPurposeRoute: typeof AuthenticatedOnboardingPurposeRoute
+  AuthenticatedOnboardingTargetRoute: typeof AuthenticatedOnboardingTargetRoute
+}
+
+const AuthenticatedOnboardingRouteChildren: AuthenticatedOnboardingRouteChildren =
+  {
+    AuthenticatedOnboardingCommitmentRoute:
+      AuthenticatedOnboardingCommitmentRoute,
+    AuthenticatedOnboardingLevelRoute: AuthenticatedOnboardingLevelRoute,
+    AuthenticatedOnboardingPurposeRoute: AuthenticatedOnboardingPurposeRoute,
+    AuthenticatedOnboardingTargetRoute: AuthenticatedOnboardingTargetRoute,
+  }
+
+const AuthenticatedOnboardingRouteWithChildren =
+  AuthenticatedOnboardingRoute._addFileChildren(
+    AuthenticatedOnboardingRouteChildren,
+  )
+
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
-  AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
+  AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRouteWithChildren
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedSpeakRoute: typeof AuthenticatedSpeakRoute
   AuthenticatedBookIdRoute: typeof AuthenticatedBookIdRoute
@@ -437,7 +538,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
-  AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
+  AuthenticatedOnboardingRoute: AuthenticatedOnboardingRouteWithChildren,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedSpeakRoute: AuthenticatedSpeakRoute,
   AuthenticatedBookIdRoute: AuthenticatedBookIdRoute,
