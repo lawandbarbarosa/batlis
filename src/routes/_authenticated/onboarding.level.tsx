@@ -33,6 +33,7 @@ function OnboardingLevelStep() {
   const navigate = useNavigate();
   const dash = useServerFn(getDashboard);
   const fn = useServerFn(setManualLevel);
+  const [selectedId, setSelectedId] = useState<Cefr | null>(null);
   const [picked, setPicked] = useState<Cefr | null>(null);
 
   // Target language was chosen in the previous step (only "en" is offered
@@ -81,8 +82,11 @@ function OnboardingLevelStep() {
             key={opt.id}
             title={t(opt.titleKey)}
             subtitle={t(opt.subKey)}
-            selected={mut.variables === opt.id && mut.isPending}
-            onClick={() => mut.mutate(opt.id)}
+            selected={selectedId === opt.id}
+            onClick={() => {
+              setSelectedId(opt.id);
+              mut.mutate(opt.id);
+            }}
           />
         ))}
       </div>
