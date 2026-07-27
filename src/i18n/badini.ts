@@ -101,6 +101,7 @@ export const badini: typeof sorani = {
   commitment_recommended: "پێشنیارکری",
   onboarding_commitment_confirm_title: "ئەڤە ئامانجەکا باشە!",
   onboarding_commitment_confirm_body: "ئەم دێ یارمەتیێ تە بدەین بۆ بەردەوامیێ ب بیرخستنێن رۆژانە و زنجیران — نوکە تو ئامادەیی بۆ دەستپێکرنێ.",
+  onboarding_save_error: "خەلەتیەک چێبوو د پاراستنا هەلبژارتنا تە دا. ژکەرەم دیسا هەول بدە.",
 
   menu: "مینیو",
   dashboard: "سەرەکی",
