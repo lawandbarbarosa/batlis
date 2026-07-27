@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { completeOnboarding } from "@/lib/learn.functions";
 import { useDialect } from "@/hooks/use-dialect";
@@ -21,7 +21,17 @@ const DAY_OPTIONS: { value: number; key: TranslationKey }[] = [
 ];
 const MINUTE_OPTIONS = [5, 10, 15, 20];
 
-function Chip({ label, sub, selected, onClick }: { label: React.ReactNode; sub?: string; selected: boolean; onClick: () => void }) {
+function Chip({
+  label,
+  sub,
+  selected,
+  onClick,
+}: {
+  label: React.ReactNode;
+  sub?: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
@@ -29,7 +39,9 @@ function Chip({ label, sub, selected, onClick }: { label: React.ReactNode; sub?:
       dir="ltr"
       className={cn(
         "flex-1 rounded-xl squircle border-2 py-3 px-2 text-center transition-all",
-        selected ? "border-primary-ink bg-primary/10" : "border-border hover:border-primary/40 bg-card",
+        selected
+          ? "border-primary-ink bg-primary/10"
+          : "border-border hover:border-primary/40 bg-card",
       )}
     >
       <div className="font-display font-semibold text-lg">{label}</div>
@@ -42,12 +54,17 @@ function Chip({ label, sub, selected, onClick }: { label: React.ReactNode; sub?:
 function OnboardingCommitmentStep() {
   const { t } = useDialect();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const fn = useServerFn(completeOnboarding);
   const [days, setDays] = useState(5);
   const [minutes, setMinutes] = useState(15);
 
   const mut = useMutation({
     mutationFn: () => fn({ data: { weeklyDaysGoal: days, dailyGoalMinutes: minutes } }),
+    // Drop any cached dashboard data (e.g. from an earlier premature visit)
+    // so the next mount of /dashboard is guaranteed to fetch fresh rather
+    // than momentarily serving a stale "not onboarded" snapshot.
+    onSuccess: () => qc.removeQueries({ queryKey: ["dashboard"] }),
   });
 
   if (mut.isSuccess) {
@@ -65,19 +82,32 @@ function OnboardingCommitmentStep() {
 
   return (
     <OnboardingShell step={4} backTo="/onboarding/level">
-      <OnboardingHeading title={t("onboarding_commitment_title")} sub={t("onboarding_commitment_sub")} />
+      <OnboardingHeading
+        title={t("onboarding_commitment_title")}
+        sub={t("onboarding_commitment_sub")}
+      />
 
       <div className="mb-6">
-        <div className="text-sm font-medium text-muted-foreground mb-2">{t("commitment_days_label")}</div>
+        <div className="text-sm font-medium text-muted-foreground mb-2">
+          {t("commitment_days_label")}
+        </div>
         <div className="flex gap-3">
           {DAY_OPTIONS.map((d) => (
-            <Chip key={d.value} label={d.value} sub={t(d.key)} selected={days === d.value} onClick={() => setDays(d.value)} />
+            <Chip
+              key={d.value}
+              label={d.value}
+              sub={t(d.key)}
+              selected={days === d.value}
+              onClick={() => setDays(d.value)}
+            />
           ))}
         </div>
       </div>
 
       <div className="mb-8">
-        <div className="text-sm font-medium text-muted-foreground mb-2">{t("commitment_minutes_label")}</div>
+        <div className="text-sm font-medium text-muted-foreground mb-2">
+          {t("commitment_minutes_label")}
+        </div>
         <div className="flex gap-3">
           {MINUTE_OPTIONS.map((m) => (
             <Chip
@@ -91,11 +121,21 @@ function OnboardingCommitmentStep() {
         </div>
       </div>
 
-      <div className="flex justify-center">
-        <Button size="lg" className="gradient-brand" onClick={() => mut.mutate()} disabled={mut.isPending}>
+      <div className="flex flex-col items-center gap-3">
+        <Button
+          size="lg"
+          className="gradient-brand"
+          onClick={() => mut.mutate()}
+          disabled={mut.isPending}
+        >
           {mut.isPending && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
           {t("continue")}
         </Button>
+        {mut.isError && (
+          <p className="text-sm text-destructive text-center max-w-sm">
+            {t("onboarding_save_error")}
+          </p>
+        )}
       </div>
     </OnboardingShell>
   );
