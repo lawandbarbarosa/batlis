@@ -67,6 +67,9 @@ function OnboardingLanguageStep() {
           />
         ))}
       </div>
+      {mut.isError && (
+        <p className="text-sm text-destructive text-center mt-4">{t("onboarding_save_error")}</p>
+      )}
     </OnboardingShell>
   );
 }
