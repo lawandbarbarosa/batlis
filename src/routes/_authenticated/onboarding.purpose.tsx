@@ -68,6 +68,7 @@ function OnboardingPurposeStep() {
   const { t } = useDialect();
   const navigate = useNavigate();
   const fn = useServerFn(updateOnboardingPurpose);
+  const [selectedId, setSelectedId] = useState<Purpose | null>(null);
   const [picked, setPicked] = useState<Purpose | null>(null);
 
   const mut = useMutation({
@@ -98,11 +99,17 @@ function OnboardingPurposeStep() {
             icon={opt.icon}
             title={t(opt.titleKey)}
             subtitle={t(opt.subKey)}
-            selected={mut.variables === opt.id && mut.isPending}
-            onClick={() => mut.mutate(opt.id)}
+            selected={selectedId === opt.id}
+            onClick={() => {
+              setSelectedId(opt.id);
+              mut.mutate(opt.id);
+            }}
           />
         ))}
       </div>
+      {mut.isError && (
+        <p className="text-sm text-destructive text-center mt-4">{t("onboarding_save_error")}</p>
+      )}
     </OnboardingShell>
   );
 }
