@@ -102,6 +102,7 @@ const s = {
   commitment_recommended: "پێشنیارکراو",
   onboarding_commitment_confirm_title: "ئەمە ئامانجێکی باشە!",
   onboarding_commitment_confirm_body: "یارمەتیت دەدەین بەردەوام بیت لەگەڵ بیرخەرەوەی ڕۆژانە و زنجیرە — ئێستا ئامادەی بۆ دەستپێکردنیت.",
+  onboarding_save_error: "هەڵەیەک ڕوویدا لە پاراستنی هەڵبژاردەکەت. تکایە دووبارە هەوڵبدەرەوە.",
 
   // Dashboard
   menu: "مینیو",
