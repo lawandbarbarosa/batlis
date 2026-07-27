@@ -44,6 +44,7 @@ import {
 } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { BannerEditorDialog } from "@/components/banner-editor";
+import { extractPdfBook } from "@/lib/pdf-import";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   ssr: false,
@@ -1933,6 +1934,9 @@ function BookForm({ value, onChange }: { value: Record<string, unknown>; onChang
   const extractFn = useServerFn(extractBookPages);
   const [readingPages, setReadingPages] = useState(false);
   const [readingProgress, setReadingProgress] = useState<{ done: number; total: number } | null>(null);
+  const [importingPdf, setImportingPdf] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState<{ done: number; total: number } | null>(null);
+  const [pdfStage, setPdfStage] = useState<"parsing" | "reading" | null>(null);
 
   const onCoverUpload = async (file: File) => {
     setUploadingCover(true);
@@ -1995,6 +1999,93 @@ function BookForm({ value, onChange }: { value: Record<string, unknown>; onChang
     } finally {
       setReadingPages(false);
       setReadingProgress(null);
+    }
+  };
+
+  // Upload a whole PDF at once. Pages with a real text layer are read
+  // directly by pdf.js (instant, free) and any images sitting on those pages
+  // are cropped out and uploaded as inline image blocks. Pages with no text
+  // layer (a scan, or a pure illustration) fall back to the same AI reading
+  // step as the photo upload above.
+  const onUploadPdfBook = async (file: File) => {
+    setImportingPdf(true);
+    setPdfStage("parsing");
+    setPdfProgress({ done: 0, total: 0 });
+    try {
+      const lang = (value.language_code as string) || "en";
+      const pages = await extractPdfBook(file, (done, total) => setPdfProgress({ done, total }));
+
+      // Upload embedded images (only present on pages that already had text).
+      const imagePathsByPage = new Map<number, string[]>();
+      for (const page of pages) {
+        if (page.images.length === 0) continue;
+        const paths: string[] = [];
+        for (const blob of page.images) {
+          const path = `${lang}/${crypto.randomUUID()}.png`;
+          const { error } = await supabase.storage
+            .from("book-images")
+            .upload(path, blob, { upsert: false, contentType: "image/png" });
+          if (error) throw error;
+          paths.push(path);
+        }
+        imagePathsByPage.set(page.pageNumber, paths);
+      }
+
+      // Pages with no usable text layer need the same AI OCR pass as photos.
+      const ocrPages = pages.filter((p) => p.needsOcr && p.pageImage);
+      const ocrTextByPage = new Map<number, string[]>();
+      if (ocrPages.length > 0) {
+        setPdfStage("reading");
+        const uploaded: Array<{ pageNumber: number; path: string }> = [];
+        for (const p of ocrPages) {
+          const path = `${lang}/${crypto.randomUUID()}.jpg`;
+          const { error } = await supabase.storage
+            .from("book-pages")
+            .upload(path, p.pageImage as Blob, { upsert: false, contentType: "image/jpeg" });
+          if (error) throw error;
+          uploaded.push({ pageNumber: p.pageNumber, path });
+        }
+        const batchSize = 3;
+        for (let i = 0; i < uploaded.length; i += batchSize) {
+          const batch = uploaded.slice(i, i + batchSize);
+          const res = await extractFn({ data: { paths: batch.map((b) => b.path) } });
+          res.paragraphsByPage.forEach((texts, idx) => {
+            ocrTextByPage.set(batch[idx].pageNumber, texts);
+          });
+          setPdfProgress({ done: Math.min(i + batch.length, uploaded.length), total: uploaded.length });
+        }
+      }
+
+      // Stitch it all back together in original page order: a page's
+      // paragraph(s) first, then any images that sat on that page.
+      const newParagraphs: BookParagraph[] = [];
+      for (const page of pages) {
+        const texts = page.needsOcr ? ocrTextByPage.get(page.pageNumber) ?? [] : page.paragraphs;
+        for (const text of texts) {
+          newParagraphs.push({ type: "paragraph", text, ku_sorani: "", ku_badini: "" });
+        }
+        for (const imagePath of imagePathsByPage.get(page.pageNumber) ?? []) {
+          newParagraphs.push({ type: "image", image_path: imagePath, caption: "" });
+        }
+      }
+
+      const existing = (value.content_json as BookParagraph[]) ?? [];
+      set("content_json", [...existing, ...newParagraphs]);
+
+      const imageCount = newParagraphs.filter((p) => p.type === "image").length;
+      const paragraphCount = newParagraphs.length - imageCount;
+      toast.success(
+        `Added ${paragraphCount} paragraph${paragraphCount === 1 ? "" : "s"}` +
+          (imageCount ? ` and ${imageCount} image${imageCount === 1 ? "" : "s"}` : "") +
+          ` from ${pages.length} page${pages.length === 1 ? "" : "s"}` +
+          (ocrPages.length ? ` (${ocrPages.length} had no text layer, read by AI)` : ""),
+      );
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setImportingPdf(false);
+      setPdfProgress(null);
+      setPdfStage(null);
     }
   };
 
@@ -2088,6 +2179,35 @@ function BookForm({ value, onChange }: { value: Record<string, unknown>; onChang
           <p className="text-xs flex items-center gap-1.5">
             <Loader2 className="h-3 w-3 animate-spin" />
             Reading pages… {readingProgress ? `${readingProgress.done}/${readingProgress.total}` : ""}
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-md border p-3 bg-muted/30 grid gap-2">
+        <Label>Or upload a PDF</Label>
+        <p className="text-xs text-muted-foreground">
+          Upload the whole book as one PDF and it's split into pages automatically. Pages with
+          real text (almost any exported or "printed to PDF" book) are read directly — instantly,
+          no AI needed — and any pictures sitting on those pages are pulled out and added as image
+          blocks right where they belong. Pages with no text layer (a scan, or a page that's a pure
+          illustration) go through the same AI reading step as the photo upload above.
+        </p>
+        <Input
+          type="file"
+          accept="application/pdf"
+          disabled={importingPdf}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onUploadPdfBook(f);
+            e.target.value = "";
+          }}
+        />
+        {importingPdf && (
+          <p className="text-xs flex items-center gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {pdfStage === "reading"
+              ? "Asking AI to read the page(s) with no text layer…"
+              : `Reading PDF… ${pdfProgress ? `${pdfProgress.done}/${pdfProgress.total} pages` : ""}`}
           </p>
         )}
       </div>
