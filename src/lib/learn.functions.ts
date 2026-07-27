@@ -63,9 +63,11 @@ export const updateActiveLanguage = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ language: langEnum }).parse(d))
   .handler(async ({ context, data }) => {
     const { supabase, userId } = context;
-    await supabase.from("profiles").update({ active_target_lang: data.language }).eq("id", userId);
+    const { error: profileError } = await supabase.from("profiles").update({ active_target_lang: data.language }).eq("id", userId);
+    if (profileError) throw new Error(`Failed to set active language: ${profileError.message}`);
     // ensure a user_language_levels row exists
-    await supabase.from("user_language_levels").upsert({ user_id: userId, language_code: data.language, current_cefr: "A1" }, { onConflict: "user_id,language_code" });
+    const { error: levelError } = await supabase.from("user_language_levels").upsert({ user_id: userId, language_code: data.language, current_cefr: "A1" }, { onConflict: "user_id,language_code" });
+    if (levelError) throw new Error(`Failed to initialize language level: ${levelError.message}`);
     return { ok: true };
   });
 
@@ -74,7 +76,8 @@ export const updateDialect = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ dialect: z.enum(["sorani", "badini", "english"]) }).parse(d))
   .handler(async ({ context, data }) => {
     const { supabase, userId } = context;
-    await supabase.from("profiles").update({ ui_dialect: data.dialect }).eq("id", userId);
+    const { error } = await supabase.from("profiles").update({ ui_dialect: data.dialect }).eq("id", userId);
+    if (error) throw new Error(`Failed to set UI language: ${error.message}`);
     return { ok: true };
   });
 
@@ -91,7 +94,8 @@ export const updateOnboardingPurpose = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ purpose: purposeEnum }).parse(d))
   .handler(async ({ context, data }) => {
     const { supabase, userId } = context;
-    await supabase.from("profiles").update({ learning_purpose: data.purpose }).eq("id", userId);
+    const { error } = await supabase.from("profiles").update({ learning_purpose: data.purpose }).eq("id", userId);
+    if (error) throw new Error(`Failed to save learning purpose: ${error.message}`);
     return { ok: true };
   });
 
@@ -104,10 +108,11 @@ export const setManualLevel = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ language: langEnum, cefr: cefrEnum }).parse(d))
   .handler(async ({ context, data }) => {
     const { supabase, userId } = context;
-    await supabase.from("user_language_levels").upsert(
+    const { error } = await supabase.from("user_language_levels").upsert(
       { user_id: userId, language_code: data.language, current_cefr: data.cefr },
       { onConflict: "user_id,language_code" },
     );
+    if (error) throw new Error(`Failed to save level: ${error.message}`);
     return { ok: true };
   });
 
@@ -126,7 +131,7 @@ export const completeOnboarding = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) => {
     const { supabase, userId } = context;
-    await supabase
+    const { error } = await supabase
       .from("profiles")
       .update({
         weekly_days_goal: data.weeklyDaysGoal,
@@ -134,6 +139,7 @@ export const completeOnboarding = createServerFn({ method: "POST" })
         onboarding_completed_at: new Date().toISOString(),
       })
       .eq("id", userId);
+    if (error) throw new Error(`Failed to complete onboarding: ${error.message}`);
     return { ok: true };
   });
 
