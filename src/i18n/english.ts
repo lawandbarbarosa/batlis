@@ -101,6 +101,7 @@ export const english: typeof sorani = {
   commitment_recommended: "Recommended",
   onboarding_commitment_confirm_title: "That's a great goal!",
   onboarding_commitment_confirm_body: "We'll help you stick to it with daily reminders and streaks — you're ready to start learning.",
+  onboarding_save_error: "Something went wrong saving that. Please try again.",
 
   menu: "Menu",
   dashboard: "Dashboard",
