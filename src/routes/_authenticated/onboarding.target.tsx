@@ -39,13 +39,18 @@ function OnboardingTargetStep() {
 
   const mut = useMutation({
     mutationFn: (language: "en" | "de" | "ar" | "ko") => setLang({ data: { language } }),
-    onSuccess: (_r, language) => { qc.invalidateQueries(); setPicked(language); },
+    onSuccess: (_r, language) => {
+      qc.invalidateQueries();
+      setPicked(language);
+    },
   });
 
   if (isLoading) {
     return (
       <OnboardingShell step={1} backTo="/onboarding">
-        <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin" /></div>
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin" />
+        </div>
       </OnboardingShell>
     );
   }
@@ -69,20 +74,34 @@ function OnboardingTargetStep() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {(data?.languages ?? []).map((lang) => {
           const available = AVAILABLE_LANGS.includes(lang.code);
-          const name = dialect === "sorani" ? lang.name_sorani : dialect === "badini" ? lang.name_badini : lang.name_en;
+          const name =
+            dialect === "sorani"
+              ? lang.name_sorani
+              : dialect === "badini"
+                ? lang.name_badini
+                : lang.name_en;
           return (
             <OptionCard
               key={lang.code}
-              icon={<span className="text-3xl"><FlagIcon code={lang.code} /></span>}
+              icon={
+                <span className="text-3xl">
+                  <FlagIcon code={lang.code} />
+                </span>
+              }
               title={name}
               subtitle={lang.name_en !== name ? lang.name_en : undefined}
               badge={available ? undefined : t("onboarding_coming_soon")}
               disabled={!available}
-              onClick={available ? () => mut.mutate(lang.code as "en" | "de" | "ar" | "ko") : undefined}
+              onClick={
+                available ? () => mut.mutate(lang.code as "en" | "de" | "ar" | "ko") : undefined
+              }
             />
           );
         })}
       </div>
+      {mut.isError && (
+        <p className="text-sm text-destructive text-center mt-4">{t("onboarding_save_error")}</p>
+      )}
     </OnboardingShell>
   );
 }
