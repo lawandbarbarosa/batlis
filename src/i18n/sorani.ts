@@ -173,6 +173,9 @@ const s = {
   books: "کتێبەکان",
   book_practice: "ڕاهێنانی خوێندنەوە",
   no_books: "هێشتا هیچ کتێبێک نییە",
+  read_aloud: "بەدەنگەوە بیخوێنەرەوە",
+  stop_reading: "وەستاندنی خوێندنەوە",
+  book_audio_error: "نەتوانرا بەدەنگ بخوێنرێتەوە. تکایە دووبارە هەوڵبدەرەوە.",
 
   // Word highlighting (admin transcript editor + viewer popover)
   highlighted_words: "وشە ڕۆشنکراوەکان",
