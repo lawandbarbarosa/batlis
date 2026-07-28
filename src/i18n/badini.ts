@@ -168,6 +168,9 @@ export const badini: typeof sorani = {
   books: "کتێب",
   book_practice: "ڕاهێنانا خوێندنێ",
   no_books: "هێشتا چ کتێب نینن",
+  read_aloud: "بدەنگ بیخوینەوە",
+  stop_reading: "وەستاندنا خوێندنێ",
+  book_audio_error: "نەهاتە دەنگدارکرن. تکایە دووبارە هەوڵبدە.",
 
   highlighted_words: "پەیڤێت ڕۆشنکری",
   highlight_hint:
