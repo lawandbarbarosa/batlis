@@ -168,6 +168,9 @@ export const english: typeof sorani = {
   books: "Books",
   book_practice: "Reading practice",
   no_books: "No books yet",
+  read_aloud: "Read aloud",
+  stop_reading: "Stop reading",
+  book_audio_error: "Couldn't read this aloud. Please try again.",
 
   highlighted_words: "Highlighted words",
   highlight_hint: "Click a word to add its meaning. Shift-click another word to select a phrase.",
