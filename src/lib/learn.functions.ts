@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { computeWordSpans, hashText, type WordSpan } from "@/lib/text-audio";
 
 const langEnum = z.enum(["en", "de", "ar", "ko"]);
 const cefrEnum = z.enum(["A1", "A2", "B1", "B2", "C1", "C2"]);
@@ -471,4 +472,239 @@ export const getBook = createServerFn({ method: "POST" })
     const { data: book } = await supabase.from("books").select("*").eq("id", data.id).maybeSingle();
     if (!book) throw new Error("Book not found");
     return { book };
+  });
+
+/* -------------------- BOOK READ-ALOUD AUDIO -------------------- */
+// Generates (once) and forever after just serves cached, word-timed text-to-speech audio
+// for a single book paragraph. Any authenticated reader can trigger generation: this only
+// ever produces a derived, cacheable *reading* of text an admin already approved and
+// published, it never changes the book's actual content, so it doesn't need admin gating.
+// The first person to press play on a given paragraph pays the (few-second) generation
+// cost; everyone after that gets the cached file back instantly.
+interface StoredWordTiming {
+  start: number;
+  end: number;
+}
+interface StoredBookParagraph {
+  type?: "paragraph" | "image" | null;
+  text?: string | null;
+  audio_path?: string | null;
+  audio_word_timings?: StoredWordTiming[] | null;
+  audio_text_hash?: string | null;
+  [key: string]: unknown;
+}
+
+// ElevenLabs caps text-to-speech requests well under book-paragraph length (paragraphs here
+// can be up to 20,000 characters — a whole OCR'd page), so long paragraphs are split on word
+// boundaries into chunks under this limit, synthesized one at a time, then stitched together.
+const ELEVEN_TTS_MAX_CHARS = 3500;
+
+interface TextChunk {
+  text: string;
+  spans: WordSpan[];
+  offset: number;
+  startWordIndex: number;
+}
+
+function chunkWordSpans(spans: WordSpan[], text: string, maxChars: number): TextChunk[] {
+  const chunks: TextChunk[] = [];
+  let i = 0;
+  while (i < spans.length) {
+    const chunkStart = spans[i].start;
+    let j = i;
+    let chunkEnd = spans[i].end;
+    while (j + 1 < spans.length && spans[j + 1].end - chunkStart + 1 <= maxChars) {
+      j += 1;
+      chunkEnd = spans[j].end;
+    }
+    chunks.push({
+      text: text.slice(chunkStart, chunkEnd + 1),
+      spans: spans.slice(i, j + 1),
+      offset: chunkStart,
+      startWordIndex: i,
+    });
+    i = j + 1;
+  }
+  return chunks;
+}
+
+// Cloudflare Workers has no Buffer global (see arrayBufferToBase64 in admin.functions.ts for
+// the encode-side equivalent of this).
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.length;
+  }
+  return out;
+}
+
+interface ElevenAlignment {
+  characters: string[];
+  character_start_times_seconds: number[];
+  character_end_times_seconds: number[];
+}
+
+export const getBookReadAloudAudio = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ bookId: z.string().uuid(), paragraphIndex: z.number().int().min(0) }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+    const { data: book } = await supabase
+      .from("books")
+      .select("id, language_code, content_json")
+      .eq("id", data.bookId)
+      .maybeSingle();
+    if (!book) throw new Error("Book not found");
+
+    const content = Array.isArray(book.content_json)
+      ? (book.content_json as unknown as StoredBookParagraph[])
+      : [];
+    const paragraph = content[data.paragraphIndex];
+    if (!paragraph || (paragraph.type && paragraph.type !== "paragraph")) {
+      throw new Error("This part of the book has no text to read");
+    }
+    const text = (paragraph.text ?? "").trim();
+    if (!text) throw new Error("This part of the book has no text to read");
+
+    const wordSpans = computeWordSpans(text);
+    const textHash = hashText(text);
+    const publicUrlFor = (path: string) =>
+      supabase.storage.from("book-audio").getPublicUrl(path).data.publicUrl;
+
+    // Cache hit: previously generated audio still matches this paragraph's text exactly.
+    if (
+      paragraph.audio_path &&
+      paragraph.audio_text_hash === textHash &&
+      Array.isArray(paragraph.audio_word_timings) &&
+      paragraph.audio_word_timings.length === wordSpans.length
+    ) {
+      return { url: publicUrlFor(paragraph.audio_path), wordTimings: paragraph.audio_word_timings };
+    }
+
+    // Cache miss: generate it now.
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey) throw new Error("ElevenLabs is not connected");
+    const voiceId =
+      process.env[`ELEVENLABS_TTS_VOICE_ID_${book.language_code.toUpperCase()}`] ||
+      process.env.ELEVENLABS_TTS_VOICE_ID;
+    if (!voiceId) {
+      throw new Error(
+        "No ElevenLabs voice configured. Set ELEVENLABS_TTS_VOICE_ID (pick a voice at " +
+          "elevenlabs.io \u2192 Voices) in your environment.",
+      );
+    }
+
+    const chunks = chunkWordSpans(wordSpans, text, ELEVEN_TTS_MAX_CHARS);
+    const audioParts: Uint8Array[] = [];
+    const wordTimings: StoredWordTiming[] = new Array(wordSpans.length);
+    let timeOffset = 0;
+
+    for (const chunk of chunks) {
+      const res = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/with-timestamps`,
+        {
+          method: "POST",
+          headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ text: chunk.text, model_id: "eleven_multilingual_v2" }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Text-to-speech failed [${res.status}]: ${body}`);
+      }
+      const json = (await res.json()) as {
+        audio_base64: string;
+        alignment: ElevenAlignment | null;
+      };
+      if (!json.alignment) throw new Error("ElevenLabs did not return timing information");
+      const {
+        characters,
+        character_start_times_seconds: starts,
+        character_end_times_seconds: ends,
+      } = json.alignment;
+      const alignmentMatchesChunk = characters.length === chunk.text.length;
+      const chunkDuration = ends.length ? ends[ends.length - 1] : 0;
+
+      for (let k = 0; k < chunk.spans.length; k++) {
+        const span = chunk.spans[k];
+        const globalIdx = chunk.startWordIndex + k;
+        const localStart = span.start - chunk.offset;
+        const localEnd = span.end - chunk.offset;
+        let start: number;
+        let end: number;
+        if (
+          alignmentMatchesChunk &&
+          starts[localStart] !== undefined &&
+          ends[localEnd] !== undefined
+        ) {
+          start = starts[localStart];
+          end = ends[localEnd];
+        } else {
+          // Defensive fallback for the rare case ElevenLabs normalizes the text server-side
+          // (e.g. expands a number) so character counts don't line up 1:1 — spread this
+          // chunk's words evenly across its audio instead of discarding the whole thing.
+          const frac = 1 / chunk.spans.length;
+          start = chunkDuration * frac * k;
+          end = chunkDuration * frac * (k + 1);
+        }
+        wordTimings[globalIdx] = { start: timeOffset + start, end: timeOffset + end };
+      }
+
+      audioParts.push(base64ToBytes(json.audio_base64));
+      timeOffset += chunkDuration;
+    }
+
+    const audioBytes = concatBytes(audioParts);
+    const path = `${data.bookId}/${data.paragraphIndex}-${textHash}.mp3`;
+
+    // Storage write + content_json cache write both need to bypass the admin-only RLS policy
+    // on `books` (the human caller here is just any reader), so they go through the
+    // service-role client. Per convention (see client.server.ts) it's imported dynamically,
+    // inside the handler, never at module top-level.
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from("book-audio")
+      .upload(path, new Blob([audioBytes as unknown as BlobPart], { type: "audio/mpeg" }), {
+        contentType: "audio/mpeg",
+        upsert: true,
+      });
+    if (uploadError) throw new Error(`Could not save generated audio: ${uploadError.message}`);
+
+    // Re-read the book right before writing so a concurrent admin edit elsewhere in
+    // content_json isn't clobbered by this cache write.
+    const { data: freshBook } = await supabaseAdmin
+      .from("books")
+      .select("content_json")
+      .eq("id", data.bookId)
+      .maybeSingle();
+    const freshContent = Array.isArray(freshBook?.content_json)
+      ? (freshBook.content_json as unknown as StoredBookParagraph[])
+      : content;
+    if (freshContent[data.paragraphIndex]) {
+      freshContent[data.paragraphIndex] = {
+        ...freshContent[data.paragraphIndex],
+        audio_path: path,
+        audio_word_timings: wordTimings,
+        audio_text_hash: textHash,
+      };
+      await supabaseAdmin
+        .from("books")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update({ content_json: freshContent as any })
+        .eq("id", data.bookId);
+    }
+
+    return { url: publicUrlFor(path), wordTimings };
   });
