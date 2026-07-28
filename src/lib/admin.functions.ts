@@ -416,6 +416,13 @@ export const adminUpsertVideo = createServerFn({ method: "POST" })
 // All fields are null/undefined-tolerant for the same reason as nullableStr
 // above, and every field is present on every block so the shape stays uniform
 // regardless of which kind it is.
+// Read-aloud audio is generated lazily by getBookReadAloudAudio (learn.functions.ts) the
+// first time any reader presses play, then cached on the paragraph itself so ElevenLabs is
+// only ever called once per paragraph. These three fields just round-trip through the admin
+// editor untouched; audio_text_hash is how getBookReadAloudAudio notices a paragraph's text
+// changed and its cached audio is now stale.
+const wordTimingSchema = z.object({ start: z.number(), end: z.number() });
+
 const bookParagraphSchema = z.object({
   type: z.enum(["paragraph", "image"]).nullish().transform((v) => v ?? "paragraph"),
   text: nullableStr(20000),
@@ -424,6 +431,9 @@ const bookParagraphSchema = z.object({
   highlights: z.array(highlightSchema).optional().default([]),
   image_path: nullableStr(500),
   caption: nullableStr(300),
+  audio_path: z.string().max(500).nullish(),
+  audio_word_timings: z.array(wordTimingSchema).nullish(),
+  audio_text_hash: z.string().max(20).nullish(),
 });
 
 export const adminUpsertBook = createServerFn({ method: "POST" })
