@@ -1,14 +1,15 @@
 // Client-side PDF import for the Books admin panel.
 //
-// Turns an uploaded PDF into the same shape the existing "Upload book (AI
-// reads it)" photo flow produces, but smarter about it:
+// Turns an uploaded PDF into book paragraphs and inline images, no AI involved:
 //   - Pages that have a real text layer (i.e. almost any PDF exported from a
 //     word processor, ebook tool, or "print to PDF") are read directly via
-//     pdf.js's text layer. This is instant and free — no AI call needed.
+//     pdf.js's text layer. This is instant and free.
 //   - Pages with no usable text layer (a scanned page, or a page that's a
-//     pure illustration) fall back to a rendered page image, exactly like a
-//     photographed page, so the caller can run it through the same AI OCR
-//     step (extractBookPages) that photo uploads already use.
+//     pure illustration) fall back to a rendered image of the whole page,
+//     which the caller inserts as an inline "image" block instead of text —
+//     nothing reads or guesses at the words on that page. If a narration
+//     recording exists for it, uploading that through the audio panel (see
+//     transcribeBookAudio) is how its text gets recognized and added.
 //   - Any embedded raster images on a page that already has real text (a
 //     diagram or photo sitting next to a paragraph) are cropped out and
 //     returned separately, in top-to-bottom order, so they can be inserted
@@ -21,11 +22,11 @@ export interface ExtractedPdfPage {
   pageNumber: number;
   /** Paragraphs read from the PDF's text layer, in reading order. Empty when the page has no usable text layer. */
   paragraphs: string[];
-  /** True when this page had no usable text layer and needs the AI OCR pass, same as a photographed page. */
-  needsOcr: boolean;
-  /** Only set when needsOcr is true: a rendered image of the whole page, ready to upload to the "book-pages" bucket. */
+  /** True when this page had no usable text layer, so it's inserted as an image block instead of text. */
+  noTextLayer: boolean;
+  /** Only set when noTextLayer is true: a rendered image of the whole page, ready to upload to the "book-images" bucket. */
   pageImage?: Blob;
-  /** Embedded images found on this page (only populated when needsOcr is false), top-to-bottom. */
+  /** Embedded images found on this page (only populated when noTextLayer is false), top-to-bottom. */
   images: Blob[];
 }
 
@@ -158,9 +159,9 @@ export async function extractPdfBook(
     const textContent = await page.getTextContent();
     const paragraphs = groupIntoParagraphs(textContent.items);
     const totalChars = paragraphs.reduce((n, p) => n + p.length, 0);
-    const needsOcr = totalChars < MIN_TEXT_LENGTH;
+    const noTextLayer = totalChars < MIN_TEXT_LENGTH;
 
-    // Render the page once — used either as the OCR fallback image, or as
+    // Render the page once — used either as the fallback page image, or as
     // the source we crop embedded images out of.
     const canvas = document.createElement("canvas");
     canvas.width = Math.ceil(viewport.width);
@@ -169,9 +170,9 @@ export async function extractPdfBook(
     if (!ctx) throw new Error("Canvas not supported in this browser");
     await page.render({ canvasContext: ctx, viewport, canvas }).promise;
 
-    if (needsOcr) {
+    if (noTextLayer) {
       const pageImage = await canvasToBlob(canvas, "image/jpeg", 0.85);
-      results.push({ pageNumber, paragraphs: [], needsOcr: true, pageImage, images: [] });
+      results.push({ pageNumber, paragraphs: [], noTextLayer: true, pageImage, images: [] });
       onProgress?.(pageNumber, pdf.numPages);
       continue;
     }
@@ -244,7 +245,7 @@ export async function extractPdfBook(
       images.push(await canvasToBlob(cropCanvas, "image/png"));
     }
 
-    results.push({ pageNumber, paragraphs, needsOcr: false, images });
+    results.push({ pageNumber, paragraphs, noTextLayer: false, images });
     onProgress?.(pageNumber, pdf.numPages);
   }
 
