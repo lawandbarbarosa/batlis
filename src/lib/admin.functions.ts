@@ -416,11 +416,11 @@ export const adminUpsertVideo = createServerFn({ method: "POST" })
 // All fields are null/undefined-tolerant for the same reason as nullableStr
 // above, and every field is present on every block so the shape stays uniform
 // regardless of which kind it is.
-// Read-aloud audio is generated lazily by getBookReadAloudAudio (learn.functions.ts) the
-// first time any reader presses play, then cached on the paragraph itself so ElevenLabs is
-// only ever called once per paragraph. These three fields just round-trip through the admin
-// editor untouched; audio_text_hash is how getBookReadAloudAudio notices a paragraph's text
-// changed and its cached audio is now stale.
+// audio_path/audio_word_timings are set once, by the admin, when they upload an MP3 of this
+// paragraph being read aloud (see transcribeBookAudio below) — never generated or changed by
+// a reader. audio_text_hash records a hash of `text` at that moment, so the book reader can
+// tell whether the paragraph has since been edited and, if so, still play the audio but skip
+// the word-by-word highlight instead of showing it out of sync.
 const wordTimingSchema = z.object({ start: z.number(), end: z.number() });
 
 const bookParagraphSchema = z.object({
@@ -693,89 +693,56 @@ export const generateWordMeaning = createServerFn({ method: "POST" })
     };
   });
 
-/* -------------------- AI: READ UPLOADED BOOK PAGES (OCR via vision model) -------------------- */
-// Cloudflare Workers has no Buffer global, so base64-encode with the standard
-// Web APIs (btoa is available there, same as in browsers).
-function arrayBufferToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
-export const extractBookPages = createServerFn({ method: "POST" })
+/* -------------------- SPEECH-TO-TEXT: TRANSCRIBE UPLOADED BOOK AUDIO -------------------- */
+// An admin records or finds an MP3 of the book being read aloud (e.g. one file per
+// paragraph or page) and uploads it directly to the public "book-audio" bucket from the
+// browser (same pattern as cover/inline-image uploads). This function is called once per
+// file, right after that upload: it recognizes the speech and returns both the transcribed
+// text and its word-level timings, which the admin UI then saves onto a single new
+// paragraph (text + audio_path + audio_word_timings + audio_text_hash) so the book reader
+// can play that exact audio back with word-by-word highlighting — no on-the-fly generation,
+// no TTS voice, just the real recording.
+//
+// IMPORTANT: word timings must line up 1:1 with `text.split(/\s+/)` on the client (that's
+// how the reader knows which word is currently playing), so — unlike transcribeVideoFile's
+// transcript lines, which are just prose for display — the returned text is words joined by
+// a single space with NO extra punctuation-spacing cleanup. That keeps the token count next
+// to the timing count guaranteed equal, at the minor cost of a stray space before punctuation.
+export const transcribeBookAudio = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) =>
-    z.object({ paths: z.array(z.string().min(1).max(500)).min(1).max(10) }).parse(d),
-  )
+  .inputValidator((d: unknown) => z.object({ path: z.string().min(1).max(500) }).parse(d))
   .handler(async ({ context, data }) => {
     await assertAdmin(context);
-    const key = process.env.LOVABLE_API_KEY;
-    if (!key) throw new Error("Lovable AI is not connected");
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey) throw new Error("ElevenLabs is not connected");
 
-    const imageParts: Array<{ type: "image_url"; image_url: { url: string } }> = [];
-    for (const path of data.paths) {
-      const { data: file, error } = await context.supabase.storage.from("book-pages").download(path);
-      if (error || !file) throw new Error(error?.message || `Could not read uploaded page: ${path}`);
-      const buf = await file.arrayBuffer();
-      const base64 = arrayBufferToBase64(buf);
-      imageParts.push({ type: "image_url", image_url: { url: `data:${file.type || "image/jpeg"};base64,${base64}` } });
-    }
+    // "book-audio" is a public bucket, so the file can be handed to ElevenLabs by URL
+    // directly — no signed URL needed (contrast with transcribeVideoFile, whose source
+    // bucket is private).
+    const publicUrl = context.supabase.storage.from("book-audio").getPublicUrl(data.path).data.publicUrl;
 
-    const body = {
-      model: "google/gemini-3-flash-preview",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You transcribe photographed or scanned book pages for a language-learning app. Read only the body text of each page — skip page numbers, running headers/footers, and watermarks. Preserve paragraph breaks as separate items when a page has more than one paragraph. If a page is a picture/illustration with no meaningful body text, return an empty string for it. Return ONLY strict JSON.",
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `Transcribe each of these ${data.paths.length} book page image(s), in the order given. Return JSON of shape {"pages":[{"i":1,"text":"..."},{"i":1,"text":"(second paragraph on page 1, if any)"},...]} — you may emit more than one entry for the same page index "i" if that page has multiple paragraphs, in reading order. Use 1-based index i matching the image order.`,
-            },
-            ...imageParts,
-          ],
-        },
-      ],
-      response_format: { type: "json_object" },
-    };
+    const fd = new FormData();
+    fd.append("model_id", "scribe_v1");
+    fd.append("source_url", publicUrl);
+    fd.append("tag_audio_events", "false");
+    fd.append("diarize", "false");
 
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": key },
-      body: JSON.stringify(body),
+      headers: { "xi-api-key": apiKey },
+      body: fd,
     });
     if (!res.ok) {
-      const t = await res.text();
-      if (res.status === 429) throw new Error("AI rate limit reached. Try again shortly.");
-      if (res.status === 402) throw new Error("AI credits exhausted. Add credits in your workspace.");
-      throw new Error(`Reading pages failed [${res.status}]: ${t}`);
+      const body = await res.text();
+      throw new Error(`Speech recognition failed [${res.status}]: ${body}`);
     }
-    const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    const content = json.choices?.[0]?.message?.content ?? "{}";
-    let parsed: { pages?: Array<{ i?: number; text?: string }> } = {};
-    try { parsed = JSON.parse(content); } catch { throw new Error("AI returned invalid JSON"); }
+    const json = (await res.json()) as { words?: Array<{ text: string; start: number; end: number; type?: string }> };
+    const words = (json.words ?? []).filter((w) => w.type !== "spacing" && w.text?.trim());
+    if (words.length === 0) throw new Error("No speech recognized in this file");
 
-    // Group by page index so a page with several paragraphs yields several
-    // strings, in order; a page the model left out entirely comes back as [].
-    const byIdx = new Map<number, string[]>();
-    for (const p of parsed.pages ?? []) {
-      if (typeof p.i !== "number") continue;
-      const text = (p.text ?? "").trim();
-      if (!text) continue;
-      const arr = byIdx.get(p.i) ?? [];
-      arr.push(text);
-      byIdx.set(p.i, arr);
-    }
-    const paragraphsByPage = data.paths.map((_, i) => byIdx.get(i + 1) ?? []);
-    return { paragraphsByPage };
+    const text = words.map((w) => w.text).join(" ");
+    const wordTimings = words.map((w) => ({ start: w.start, end: w.end }));
+    return { text, wordTimings };
   });
 
 export const adminDeleteVideo = createServerFn({ method: "POST" })
