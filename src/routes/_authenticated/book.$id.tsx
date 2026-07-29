@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
-import { getBook, getBookReadAloudAudio } from "@/lib/learn.functions";
+import { getBook } from "@/lib/learn.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { useDialect } from "@/hooks/use-dialect";
 import type { TranslationKey } from "@/i18n/sorani";
@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Loader2, Play, Pause } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { hashText } from "@/lib/text-audio";
 
 const paramsSchema = z.object({ id: z.string().uuid() });
 
@@ -40,6 +41,10 @@ interface BookParagraph {
   highlights?: WordHighlight[];
   image_path?: string;
   caption?: string;
+  /** Admin-uploaded, speech-recognized narration for this paragraph, if any (see the admin "Upload audio" panel). */
+  audio_path?: string;
+  audio_word_timings?: { start: number; end: number }[];
+  audio_text_hash?: string;
 }
 
 function tokenizeWords(text?: string): string[] {
@@ -174,25 +179,22 @@ function BookView() {
   const { id } = Route.useParams();
   const { t, dialect } = useDialect();
   const fn = useServerFn(getBook);
-  const fetchReadAloudAudio = useServerFn(getBookReadAloudAudio);
 
   const { data, isLoading } = useQuery({
     queryKey: ["book", id],
     queryFn: () => fn({ data: { id } }),
   });
 
-  // Read-aloud playback: one <audio> element shared across the whole page, pointed at
-  // whichever paragraph is currently playing. Word timings for that paragraph live in
-  // currentTimingsRef so the (frequent) timeupdate handler can look them up without
-  // triggering a re-render on every tick.
+  // Playback of admin-uploaded narration audio: one <audio> element shared across the
+  // whole page, pointed at whichever paragraph is currently playing. Word timings for that
+  // paragraph live in currentTimingsRef so the (frequent) timeupdate handler can look them
+  // up without triggering a re-render on every tick. Only paragraphs with their own
+  // audio_path (a real recording, transcribed by the admin) are playable — nothing is
+  // generated here.
   const [playingParagraph, setPlayingParagraph] = useState<number | null>(null);
-  const [loadingParagraph, setLoadingParagraph] = useState<number | null>(null);
   const [activeWordIdx, setActiveWordIdx] = useState(-1);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const paragraphRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const audioCache = useRef<
-    Map<number, { url: string; wordTimings: { start: number; end: number }[] }>
-  >(new Map());
   const currentTimingsRef = useRef<{ start: number; end: number }[]>([]);
 
   useEffect(() => {
@@ -236,52 +238,40 @@ function BookView() {
     audioRef.current?.pause();
     currentTimingsRef.current = [];
     setPlayingParagraph(null);
-    setLoadingParagraph(null);
     setActiveWordIdx(-1);
   };
 
+  // Only paragraphs with their own uploaded, speech-recognized narration are playable —
+  // "readable" here means "has audio", not just "has text".
   const findNextReadable = (fromIdx: number): number => {
     for (let k = fromIdx; k < content.length; k++) {
       const para = content[k];
-      if (para.type !== "image" && (para.text ?? "").trim()) return k;
+      if (para.type !== "image" && para.audio_path) return k;
     }
     return -1;
   };
 
-  const playParagraphAt = async (idx: number) => {
+  const playParagraphAt = (idx: number) => {
     const para = content[idx];
-    if (!para || para.type === "image" || !(para.text ?? "").trim()) {
+    if (!para || para.type === "image" || !para.audio_path) {
       stopReading();
       return;
     }
+    // Highlighting relies on wordTimings lining up 1:1 with the current text; if an admin
+    // edited the paragraph after the audio was transcribed, skip highlighting rather than
+    // show it drifting out of sync, but still play the audio itself.
+    const stillMatches = para.audio_text_hash === hashText(para.text ?? "");
+    currentTimingsRef.current = stillMatches ? (para.audio_word_timings ?? []) : [];
     setPlayingParagraph(idx);
     setActiveWordIdx(-1);
-
-    const cached = audioCache.current.get(idx);
-    if (cached) {
-      currentTimingsRef.current = cached.wordTimings;
-      if (audioRef.current) {
-        audioRef.current.src = cached.url;
-        void audioRef.current.play();
-      }
-      return;
-    }
-
-    setLoadingParagraph(idx);
-    try {
-      const result = await fetchReadAloudAudio({ data: { bookId: id, paragraphIndex: idx } });
-      audioCache.current.set(idx, result);
-      currentTimingsRef.current = result.wordTimings;
-      if (audioRef.current) {
-        audioRef.current.src = result.url;
-        await audioRef.current.play();
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error(t("book_audio_error"));
-      stopReading();
-    } finally {
-      setLoadingParagraph(null);
+    if (audioRef.current) {
+      audioRef.current.src = supabase.storage
+        .from("book-audio")
+        .getPublicUrl(para.audio_path).data.publicUrl;
+      void audioRef.current.play().catch(() => {
+        toast.error(t("book_audio_error"));
+        stopReading();
+      });
     }
   };
 
@@ -299,7 +289,7 @@ function BookView() {
   const handleEnded = () => {
     const next = findNextReadable((playingParagraph ?? -1) + 1);
     if (next === -1) stopReading();
-    else void playParagraphAt(next);
+    else playParagraphAt(next);
   };
 
   const handleAudioError = () => {
@@ -383,20 +373,20 @@ function BookView() {
                   className="py-4 border-b border-border/60 last:border-b-0"
                 >
                   <div className="flex items-start gap-3">
-                    <button
-                      type="button"
-                      onClick={() => (isPlayingThis ? stopReading() : void playParagraphAt(i))}
-                      aria-label={isPlayingThis ? t("stop_reading") : t("read_aloud")}
-                      className="mt-0.5 shrink-0 h-8 w-8 rounded-full bg-primary/15 hover:bg-primary/25 text-primary-ink flex items-center justify-center transition-colors"
-                    >
-                      {loadingParagraph === i ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : isPlayingThis ? (
-                        <Pause className="h-3.5 w-3.5 fill-current" />
-                      ) : (
-                        <Play className="h-3.5 w-3.5 fill-current ml-0.5" />
-                      )}
-                    </button>
+                    {p.audio_path && (
+                      <button
+                        type="button"
+                        onClick={() => (isPlayingThis ? stopReading() : playParagraphAt(i))}
+                        aria-label={isPlayingThis ? t("stop_reading") : t("read_aloud")}
+                        className="mt-0.5 shrink-0 h-8 w-8 rounded-full bg-primary/15 hover:bg-primary/25 text-primary-ink flex items-center justify-center transition-colors"
+                      >
+                        {isPlayingThis ? (
+                          <Pause className="h-3.5 w-3.5 fill-current" />
+                        ) : (
+                          <Play className="h-3.5 w-3.5 fill-current ml-0.5" />
+                        )}
+                      </button>
+                    )}
                     <div className="min-w-0 flex-1">
                       <ParagraphText
                         paragraph={p}
