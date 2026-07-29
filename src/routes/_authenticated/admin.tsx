@@ -40,11 +40,12 @@ import {
   translateTranscriptLines,
   translateLessonWords,
   generateWordMeaning,
-  extractBookPages,
+  transcribeBookAudio,
 } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { BannerEditorDialog } from "@/components/banner-editor";
 import { extractPdfBook } from "@/lib/pdf-import";
+import { hashText } from "@/lib/text-audio";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   ssr: false,
@@ -1861,6 +1862,10 @@ interface BookParagraph {
   highlights?: WordHighlight[];
   image_path?: string;
   caption?: string;
+  /** Set when this paragraph has an admin-uploaded, speech-recognized narration MP3 attached (see the "Upload audio" panel). */
+  audio_path?: string;
+  audio_word_timings?: { start: number; end: number }[];
+  audio_text_hash?: string;
 }
 
 function BooksTab() {
@@ -1931,12 +1936,11 @@ function BookForm({ value, onChange }: { value: Record<string, unknown>; onChang
   const [uploadingCover, setUploadingCover] = useState(false);
   const [translating, setTranslating] = useState(false);
   const translateFn = useServerFn(translateTranscriptLines);
-  const extractFn = useServerFn(extractBookPages);
-  const [readingPages, setReadingPages] = useState(false);
-  const [readingProgress, setReadingProgress] = useState<{ done: number; total: number } | null>(null);
+  const transcribeFn = useServerFn(transcribeBookAudio);
+  const [transcribingAudio, setTranscribingAudio] = useState(false);
+  const [audioProgress, setAudioProgress] = useState<{ done: number; total: number } | null>(null);
   const [importingPdf, setImportingPdf] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<{ done: number; total: number } | null>(null);
-  const [pdfStage, setPdfStage] = useState<"parsing" | "reading" | null>(null);
 
   const onCoverUpload = async (file: File) => {
     setUploadingCover(true);
@@ -1958,110 +1962,45 @@ function BookForm({ value, onChange }: { value: Record<string, unknown>; onChang
     ? supabase.storage.from("book-covers").getPublicUrl(value.cover_path as string).data.publicUrl
     : null;
 
-  // Upload page photos/scans of the book, then let the AI read each page and
-  // turn it into paragraph(s) below. Pages that are pure illustrations come
-  // back with no text and are skipped — add those manually as image blocks
-  // if you want to keep them in the book.
-  const onUploadBookPages = async (files: File[]) => {
-    setReadingPages(true);
-    setReadingProgress({ done: 0, total: files.length });
-    try {
-      const paths: string[] = [];
-      for (const file of files) {
-        const ext = file.name.split(".").pop() || "jpg";
-        const path = `${(value.language_code as string) || "en"}/${crypto.randomUUID()}.${ext}`;
-        const { error } = await supabase.storage.from("book-pages").upload(path, file, { upsert: false, contentType: file.type });
-        if (error) throw error;
-        paths.push(path);
-      }
-      // Send a handful of pages per request so no single request gets too large.
-      const batchSize = 3;
-      const newParagraphs: BookParagraph[] = [];
-      for (let i = 0; i < paths.length; i += batchSize) {
-        const batch = paths.slice(i, i + batchSize);
-        const res = await extractFn({ data: { paths: batch } });
-        for (const pageTexts of res.paragraphsByPage) {
-          for (const text of pageTexts) {
-            newParagraphs.push({ type: "paragraph", text, ku_sorani: "", ku_badini: "" });
-          }
-        }
-        setReadingProgress({ done: Math.min(i + batch.length, paths.length), total: paths.length });
-      }
-      const existing = (value.content_json as BookParagraph[]) ?? [];
-      set("content_json", [...existing, ...newParagraphs]);
-      const skippedPages = paths.length - newParagraphs.length;
-      toast.success(
-        `Added ${newParagraphs.length} paragraph${newParagraphs.length === 1 ? "" : "s"} from ${paths.length} page${paths.length === 1 ? "" : "s"}` +
-        (newParagraphs.length < paths.length ? ` (some pages had no readable text)` : ""),
-      );
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setReadingPages(false);
-      setReadingProgress(null);
-    }
-  };
-
   // Upload a whole PDF at once. Pages with a real text layer are read
   // directly by pdf.js (instant, free) and any images sitting on those pages
   // are cropped out and uploaded as inline image blocks. Pages with no text
-  // layer (a scan, or a pure illustration) fall back to the same AI reading
-  // step as the photo upload above.
+  // layer (a scan, or a pure illustration) are inserted as an image block
+  // instead of text — nothing guesses at the words. To get real text (and
+  // narration audio) for one of those pages, upload a recording of it being
+  // read aloud in the "Upload audio" panel below.
   const onUploadPdfBook = async (file: File) => {
     setImportingPdf(true);
-    setPdfStage("parsing");
     setPdfProgress({ done: 0, total: 0 });
     try {
       const lang = (value.language_code as string) || "en";
       const pages = await extractPdfBook(file, (done, total) => setPdfProgress({ done, total }));
 
-      // Upload embedded images (only present on pages that already had text).
+      // Upload embedded images (present on pages that already had text) and
+      // whole-page images (for pages with no text layer) to the same public bucket.
       const imagePathsByPage = new Map<number, string[]>();
       for (const page of pages) {
-        if (page.images.length === 0) continue;
+        const blobs = page.noTextLayer ? (page.pageImage ? [page.pageImage] : []) : page.images;
+        if (blobs.length === 0) continue;
         const paths: string[] = [];
-        for (const blob of page.images) {
-          const path = `${lang}/${crypto.randomUUID()}.png`;
+        for (const blob of blobs) {
+          const ext = page.noTextLayer ? "jpg" : "png";
+          const path = `${lang}/${crypto.randomUUID()}.${ext}`;
           const { error } = await supabase.storage
             .from("book-images")
-            .upload(path, blob, { upsert: false, contentType: "image/png" });
+            .upload(path, blob, { upsert: false, contentType: page.noTextLayer ? "image/jpeg" : "image/png" });
           if (error) throw error;
           paths.push(path);
         }
         imagePathsByPage.set(page.pageNumber, paths);
       }
 
-      // Pages with no usable text layer need the same AI OCR pass as photos.
-      const ocrPages = pages.filter((p) => p.needsOcr && p.pageImage);
-      const ocrTextByPage = new Map<number, string[]>();
-      if (ocrPages.length > 0) {
-        setPdfStage("reading");
-        const uploaded: Array<{ pageNumber: number; path: string }> = [];
-        for (const p of ocrPages) {
-          const path = `${lang}/${crypto.randomUUID()}.jpg`;
-          const { error } = await supabase.storage
-            .from("book-pages")
-            .upload(path, p.pageImage as Blob, { upsert: false, contentType: "image/jpeg" });
-          if (error) throw error;
-          uploaded.push({ pageNumber: p.pageNumber, path });
-        }
-        const batchSize = 3;
-        for (let i = 0; i < uploaded.length; i += batchSize) {
-          const batch = uploaded.slice(i, i + batchSize);
-          const res = await extractFn({ data: { paths: batch.map((b) => b.path) } });
-          res.paragraphsByPage.forEach((texts, idx) => {
-            ocrTextByPage.set(batch[idx].pageNumber, texts);
-          });
-          setPdfProgress({ done: Math.min(i + batch.length, uploaded.length), total: uploaded.length });
-        }
-      }
-
       // Stitch it all back together in original page order: a page's
-      // paragraph(s) first, then any images that sat on that page.
+      // paragraph(s) first, then any images that sat on that page (or, for a
+      // page with no text layer, the whole page as a single image).
       const newParagraphs: BookParagraph[] = [];
       for (const page of pages) {
-        const texts = page.needsOcr ? ocrTextByPage.get(page.pageNumber) ?? [] : page.paragraphs;
-        for (const text of texts) {
+        for (const text of page.paragraphs) {
           newParagraphs.push({ type: "paragraph", text, ku_sorani: "", ku_badini: "" });
         }
         for (const imagePath of imagePathsByPage.get(page.pageNumber) ?? []) {
@@ -2072,20 +2011,72 @@ function BookForm({ value, onChange }: { value: Record<string, unknown>; onChang
       const existing = (value.content_json as BookParagraph[]) ?? [];
       set("content_json", [...existing, ...newParagraphs]);
 
+      const noTextLayerCount = pages.filter((p) => p.noTextLayer).length;
       const imageCount = newParagraphs.filter((p) => p.type === "image").length;
       const paragraphCount = newParagraphs.length - imageCount;
       toast.success(
         `Added ${paragraphCount} paragraph${paragraphCount === 1 ? "" : "s"}` +
           (imageCount ? ` and ${imageCount} image${imageCount === 1 ? "" : "s"}` : "") +
           ` from ${pages.length} page${pages.length === 1 ? "" : "s"}` +
-          (ocrPages.length ? ` (${ocrPages.length} had no text layer, read by AI)` : ""),
+          (noTextLayerCount
+            ? ` (${noTextLayerCount} had no text layer and were added as images — use the audio panel below or type the text in manually)`
+            : ""),
       );
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setImportingPdf(false);
       setPdfProgress(null);
-      setPdfStage(null);
+    }
+  };
+
+  // Upload one or more MP3 recordings of the book being read aloud — one file
+  // per paragraph or page works best. Files are recognized one at a time
+  // (not batched together): each is uploaded to the public "book-audio"
+  // bucket, sent to speech-to-text, and turned into a new paragraph with the
+  // recognized text and that audio attached, so the reader can play the real
+  // recording back with word-by-word highlighting.
+  const onUploadBookAudio = async (files: File[]) => {
+    setTranscribingAudio(true);
+    setAudioProgress({ done: 0, total: files.length });
+    try {
+      const lang = (value.language_code as string) || "en";
+      let skipped = 0;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const ext = file.name.split(".").pop() || "mp3";
+        const path = `${lang}/${crypto.randomUUID()}.${ext}`;
+        const { error } = await supabase.storage.from("book-audio").upload(path, file, { upsert: false, contentType: file.type || "audio/mpeg" });
+        if (error) throw error;
+
+        try {
+          const { text, wordTimings } = await transcribeFn({ data: { path } });
+          const existing = (value.content_json as BookParagraph[]) ?? [];
+          const newParagraph: BookParagraph = {
+            type: "paragraph",
+            text,
+            ku_sorani: "",
+            ku_badini: "",
+            audio_path: path,
+            audio_word_timings: wordTimings,
+            audio_text_hash: hashText(text),
+          };
+          set("content_json", [...existing, newParagraph]);
+        } catch (e) {
+          skipped += 1;
+          toast.error(`${file.name}: ${(e as Error).message}`);
+        }
+        setAudioProgress({ done: i + 1, total: files.length });
+      }
+      const added = files.length - skipped;
+      if (added > 0) {
+        toast.success(`Added ${added} paragraph${added === 1 ? "" : "s"} from ${added} recording${added === 1 ? "" : "s"}`);
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setTranscribingAudio(false);
+      setAudioProgress(null);
     }
   };
 
@@ -2157,40 +2148,14 @@ function BookForm({ value, onChange }: { value: Record<string, unknown>; onChang
       </div>
 
       <div className="rounded-md border p-3 bg-muted/30 grid gap-2">
-        <Label>Upload book (AI reads it)</Label>
-        <p className="text-xs text-muted-foreground">
-          Upload photos or scans of the book's pages, in reading order — even pages that include pictures.
-          The AI reads the text on each page and adds it as paragraph(s) below. Pages that are pure
-          illustrations are skipped automatically; add those further down as image blocks if you want to
-          keep them in the book.
-        </p>
-        <Input
-          type="file"
-          accept="image/*"
-          multiple
-          disabled={readingPages}
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            if (files.length) onUploadBookPages(files);
-            e.target.value = "";
-          }}
-        />
-        {readingPages && (
-          <p className="text-xs flex items-center gap-1.5">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            Reading pages… {readingProgress ? `${readingProgress.done}/${readingProgress.total}` : ""}
-          </p>
-        )}
-      </div>
-
-      <div className="rounded-md border p-3 bg-muted/30 grid gap-2">
-        <Label>Or upload a PDF</Label>
+        <Label>Upload a PDF</Label>
         <p className="text-xs text-muted-foreground">
           Upload the whole book as one PDF and it's split into pages automatically. Pages with
-          real text (almost any exported or "printed to PDF" book) are read directly — instantly,
-          no AI needed — and any pictures sitting on those pages are pulled out and added as image
-          blocks right where they belong. Pages with no text layer (a scan, or a page that's a pure
-          illustration) go through the same AI reading step as the photo upload above.
+          real text (almost any exported or "printed to PDF" book) are read directly and
+          instantly, and any pictures sitting on those pages are pulled out and added as image
+          blocks right where they belong. Pages with no text layer (a scan, or a page that's a
+          pure illustration) are added as a single image instead — use the audio panel below, or
+          type the text in manually further down, to give that page real, readable text.
         </p>
         <Input
           type="file"
@@ -2205,9 +2170,34 @@ function BookForm({ value, onChange }: { value: Record<string, unknown>; onChang
         {importingPdf && (
           <p className="text-xs flex items-center gap-1.5">
             <Loader2 className="h-3 w-3 animate-spin" />
-            {pdfStage === "reading"
-              ? "Asking AI to read the page(s) with no text layer…"
-              : `Reading PDF… ${pdfProgress ? `${pdfProgress.done}/${pdfProgress.total} pages` : ""}`}
+            Reading PDF… {pdfProgress ? `${pdfProgress.done}/${pdfProgress.total} pages` : ""}
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-md border p-3 bg-muted/30 grid gap-2">
+        <Label>Upload audio (speech is recognized automatically)</Label>
+        <p className="text-xs text-muted-foreground">
+          Upload MP3 recordings of the book being read aloud, in reading order — one file per
+          paragraph or page works best. Each recording is recognized one at a time and added
+          below as a paragraph with its text and that exact audio attached, so learners can play
+          the real recording back with word-by-word highlighting while they read.
+        </p>
+        <Input
+          type="file"
+          accept="audio/mpeg,audio/mp3,.mp3"
+          multiple
+          disabled={transcribingAudio}
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            if (files.length) onUploadBookAudio(files);
+            e.target.value = "";
+          }}
+        />
+        {transcribingAudio && (
+          <p className="text-xs flex items-center gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Recognizing speech… {audioProgress ? `${audioProgress.done}/${audioProgress.total}` : ""}
           </p>
         )}
       </div>
@@ -2464,11 +2454,13 @@ function BookParagraphEditor({ value, onChange, sourceLanguage }: { value: BookP
       </div>
       {value.length === 0 && (
         <p className="text-xs text-muted-foreground">
-          No content yet. Click "Add paragraph" / "Add image" above, or upload page photos above for the AI to read.
+          No content yet. Click "Add paragraph" / "Add image" above, or upload a PDF or audio recordings above.
         </p>
       )}
       {value.map((p, i) => {
         const isImage = p.type === "image";
+        const hasAudio = !isImage && !!p.audio_path;
+        const audioStale = hasAudio && p.audio_text_hash !== hashText(p.text ?? "");
         return (
           <div key={i}>
             <div className="rounded-md border p-3 grid gap-2 bg-muted/30">
@@ -2484,6 +2476,23 @@ function BookParagraphEditor({ value, onChange, sourceLanguage }: { value: BookP
                   <ParagraphHighlighter paragraph={p} onChange={(highlights) => update(i, { highlights })} sourceLanguage={sourceLanguage} />
                   <Input placeholder="Kurdish (Sorani) translation" value={p.ku_sorani ?? ""} onChange={(e) => update(i, { ku_sorani: e.target.value })} />
                   <Input placeholder="Kurdish (Badini) translation" value={p.ku_badini ?? ""} onChange={(e) => update(i, { ku_badini: e.target.value })} />
+                  {hasAudio && (
+                    <div className="flex items-center justify-between gap-2 text-xs rounded border bg-background px-2 py-1.5">
+                      <span className="text-muted-foreground">
+                        🎙️ Narration audio attached
+                        {audioStale && " — text edited since, highlighting may be off"}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2"
+                        onClick={() => update(i, { audio_path: undefined, audio_word_timings: undefined, audio_text_hash: undefined })}
+                      >
+                        Remove audio
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
             </div>
