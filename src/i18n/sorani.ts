@@ -455,6 +455,17 @@ const s = {
   contact_form_note: "ئەمە ئەپی ئیمەیلەکەت دەکاتەوە لەگەڵ پەیامەکەت ئامادە بۆ ناردن.",
   contact_copy_email: "کۆپیکردنی ناونیشانی ئیمەیل",
   contact_email_copied: "ناونیشانی ئیمەیل کۆپیکرا",
+  nav_grade12: "پۆلی ١٢",
+  grade12_eyebrow: "ئامادەکاری پۆلی ١٢",
+  grade12_title: "ئینگلیزی پۆلی ١٢",
+  grade12_sub: "شەش یەکە بۆ ئامادەکردنی خوێندکارانی پۆلی ١٢ی هەرێمی کوردستان بۆ تاقیکردنەوەی ئینگلیزی.",
+  grade12_disclaimer: "ئەم بابەتانە یارمەتیدەرێکی سەربەخۆن و بەشێک نین لە کتێبی فەرمی.",
+  grade12_units_label: "یەکەکان",
+  grade12_reading: "خوێندنەوە",
+  grade12_score_label: "نمرە",
+  grade12_check_answers: "پشکنینی وەڵامەکان",
+  grade12_writing_prompt: "ڕاهێنانی نووسین",
+  grade12_exam_tips_title: "ئامۆژگاری تاقیکردنەوە",
 } as const;
 
 export type TranslationKey = keyof typeof s;
