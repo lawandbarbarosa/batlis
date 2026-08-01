@@ -352,7 +352,9 @@ export type Database = {
           display_name: string | null
           id: string
           last_active_date: string | null
-          learning_purpose: Database["public"]["Enums"]["learning_purpose"] | null
+          learning_purpose:
+            | Database["public"]["Enums"]["learning_purpose"]
+            | null
           onboarding_completed_at: string | null
           streak_count: number
           ui_dialect: Database["public"]["Enums"]["ui_dialect"]
@@ -366,7 +368,9 @@ export type Database = {
           display_name?: string | null
           id: string
           last_active_date?: string | null
-          learning_purpose?: Database["public"]["Enums"]["learning_purpose"] | null
+          learning_purpose?:
+            | Database["public"]["Enums"]["learning_purpose"]
+            | null
           onboarding_completed_at?: string | null
           streak_count?: number
           ui_dialect?: Database["public"]["Enums"]["ui_dialect"]
@@ -380,7 +384,9 @@ export type Database = {
           display_name?: string | null
           id?: string
           last_active_date?: string | null
-          learning_purpose?: Database["public"]["Enums"]["learning_purpose"] | null
+          learning_purpose?:
+            | Database["public"]["Enums"]["learning_purpose"]
+            | null
           onboarding_completed_at?: string | null
           streak_count?: number
           ui_dialect?: Database["public"]["Enums"]["ui_dialect"]

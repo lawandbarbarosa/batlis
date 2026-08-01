@@ -12,7 +12,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Loader2, ChevronUp, ChevronDown, Trash2, X } from "lucide-react";
+import { Sparkles, Loader2, ChevronUp, ChevronDown, Trash2, X, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useDialect } from "@/hooks/use-dialect";
 import { cn } from "@/lib/utils";
@@ -40,6 +40,7 @@ import {
   translateTranscriptLines,
   translateLessonWords,
   generateWordMeaning,
+  generateWordImage,
   transcribeBookAudio,
 } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
@@ -634,6 +635,10 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addedCount, setAddedCount] = useState(0);
+  // The parsed JSON turned into an editable flow, so each step can be tweaked
+  // (translations, pictures, order) before the lesson is saved.
+  const [flowTitle, setFlowTitle] = useState("");
+  const [flowSteps, setFlowSteps] = useState<LessonStep[] | null>(null);
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -664,38 +669,75 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
     return assets[base] ?? ref;
   };
 
-  const runSave = async () => {
+  // Turn the pasted JSON into an editable flow (title + steps). Nothing is saved yet.
+  const buildFlow = (): boolean => {
     let parsed: unknown;
     try {
       parsed = JSON.parse(jsonText);
     } catch {
       toast.error("That's not valid JSON.");
-      return;
+      return false;
     }
     let block = (parsed ?? {}) as Record<string, unknown>;
-    let multiBlockNote = "";
     if (Array.isArray(block.blocks)) {
       const blocks = block.blocks as Record<string, unknown>[];
       block = blocks[0] ?? {};
       if (blocks.length > 1) {
-        multiBlockNote = ` Found ${blocks.length} blocks in that document — saved block 1 ("${String(block.title ?? "")}"); paste each remaining block separately.`;
+        toast.info(`Found ${blocks.length} blocks — loaded block 1 ("${String(block.title ?? "")}"). Paste each remaining block separately.`);
       }
     }
     const titleEn = typeof block.title === "string" ? block.title.trim() : "";
     if (!titleEn) {
       toast.error('That JSON needs a "title" for the lesson.');
-      return;
+      return false;
     }
     const content = Array.isArray(block.content) ? (block.content as unknown[]) : [];
     const { steps: rawSteps, summary } = blockContentToSteps(content);
     const steps: LessonStep[] = rawSteps.map((s) => {
       if (s.type === "image") return { ...s, url: resolveAsset(s.url) };
-      if ((s.type === "word" || s.type === "sentence") && s.audio_url) return { ...s, audio_url: resolveAsset(s.audio_url) };
+      if (s.type === "word" || s.type === "sentence") {
+        return {
+          ...s,
+          audio_url: s.audio_url ? resolveAsset(s.audio_url) : s.audio_url,
+          image_url: s.image_url ? resolveAsset(s.image_url) : s.image_url,
+        };
+      }
       return s;
     });
+    setFlowTitle(titleEn);
+    setFlowSteps(steps);
+    const skippedParts = Object.entries(summary.skipped).map(([k, v]) => `${v} ${k}`);
+    toast.success(
+      `Loaded "${titleEn}" — ${summary.words} word(s), ${summary.sentences} sentence(s). Edit the flow below, then save.` +
+        (skippedParts.length ? ` Skipped: ${skippedParts.join(", ")}.` : ""),
+    );
+    return true;
+  };
+
+  const resetPanel = () => {
+    setJsonText("");
+    setAssets({});
+    setFlowTitle("");
+    setFlowSteps(null);
+  };
+
+  const runSave = async () => {
+    const steps = flowSteps;
+    const titleEn = flowTitle.trim();
+    if (!steps) {
+      if (!buildFlow()) return;
+      // buildFlow's state isn't visible yet in this tick — ask the admin to review first.
+      toast.info("Review the flow below, then press Save Lesson again.");
+      return;
+    }
+    if (!titleEn) {
+      toast.error("Give the lesson an English title.");
+      return;
+    }
     const unresolvedAssets = steps.filter((s) =>
       (s.type === "image" && !!s.url && !/^https?:\/\//i.test(s.url)) ||
-      ((s.type === "word" || s.type === "sentence") && !!s.audio_url && !/^https?:\/\//i.test(s.audio_url)),
+      ((s.type === "word" || s.type === "sentence") &&
+        ((!!s.audio_url && !/^https?:\/\//i.test(s.audio_url)) || (!!s.image_url && !/^https?:\/\//i.test(s.image_url)))),
     ).length;
 
     setSaving(true);
@@ -735,21 +777,11 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
       });
 
       setAddedCount((c) => c + 1);
-      setJsonText("");
-      setAssets({});
+      resetPanel();
       onImported();
 
-      const parts = [
-        summary.words ? `${summary.words} word${summary.words === 1 ? "" : "s"}` : null,
-        summary.sentences ? `${summary.sentences} sentence${summary.sentences === 1 ? "" : "s"}` : null,
-        summary.images ? `${summary.images} image${summary.images === 1 ? "" : "s"}` : null,
-        summary.tips ? `${summary.tips} tip${summary.tips === 1 ? "" : "s"}` : null,
-      ].filter(Boolean);
-      const skippedParts = Object.entries(summary.skipped).map(([k, v]) => `${v} ${k}`);
-      let msg = `Saved "${titleEn}"` + (parts.length ? ` — ${parts.join(", ")}` : "") + ". Title and any missing translations were filled in with AI.";
-      if (skippedParts.length) msg += ` Skipped (not supported yet): ${skippedParts.join(", ")}.`;
-      if (unresolvedAssets) msg += ` ${unresolvedAssets} image/audio reference${unresolvedAssets === 1 ? "" : "s"} didn't match an uploaded file — upload one with a matching filename, or fix it later by editing this lesson.`;
-      msg += multiBlockNote;
+      let msg = `Saved "${titleEn}" — ${finalSteps.length} step${finalSteps.length === 1 ? "" : "s"}. Any missing translations were filled in with AI.`;
+      if (unresolvedAssets) msg += ` ${unresolvedAssets} image/audio reference${unresolvedAssets === 1 ? "" : "s"} isn't a real URL — upload a file with a matching name, or fix it in the flow.`;
       toast.success(msg);
     } catch (e) {
       toast.error((e as Error).message);
@@ -761,13 +793,22 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
   return (
     <div className="grid gap-3">
       <Textarea
-        rows={16}
+        rows={flowSteps ? 8 : 16}
         className="font-mono text-xs"
         dir="ltr"
         value={jsonText}
         onChange={(e) => setJsonText(e.target.value)}
         placeholder={BLOCK_IMPORT_EXAMPLE}
       />
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button type="button" variant="secondary" size="sm" onClick={buildFlow} disabled={!jsonText.trim()}>
+          {flowSteps ? "Rebuild flow from JSON" : "Build flow from JSON"}
+        </Button>
+        {flowSteps && (
+          <span className="text-xs text-muted-foreground">Rebuilding replaces every edit you made below.</span>
+        )}
+      </div>
+
       <div>
         <Label>Images &amp; audio (optional)</Label>
         <p className="text-xs text-muted-foreground mb-1.5">
@@ -786,9 +827,27 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
           </div>
         )}
       </div>
+
+      {flowSteps && (
+        <div className="rounded-md border p-3 bg-muted/30 grid gap-3">
+          <div>
+            <Label>Lesson title (English)</Label>
+            <Input dir="ltr" value={flowTitle} onChange={(e) => setFlowTitle(e.target.value)} />
+            <p className="text-xs text-muted-foreground mt-1">Kurdish titles are generated automatically when you save.</p>
+          </div>
+          <div>
+            <Label>Flow — step by step</Label>
+            <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+              Reorder, edit or delete individual steps, add a picture to any word, and fill Kurdish with AI. This is exactly what learners will walk through.
+            </p>
+            <LessonStepsEditor value={flowSteps} onChange={setFlowSteps} sourceLanguage={lang} courseId={course.id} />
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         {addedCount > 0 ? <span className="text-xs text-muted-foreground">{addedCount} lesson{addedCount === 1 ? "" : "s"} added this session</span> : <span />}
-        <Button onClick={runSave} disabled={saving || uploading || !jsonText.trim()}>
+        <Button onClick={runSave} disabled={saving || uploading || (!jsonText.trim() && !flowSteps)}>
           {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
           Save Lesson
         </Button>
@@ -797,14 +856,15 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
   );
 }
 
+
 type LessonStep =
-  | { type: "word"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string }
-  | { type: "sentence"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string }
+  | { type: "word"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string; image_url?: string }
+  | { type: "sentence"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string; image_url?: string }
   | { type: "image"; url: string; caption?: string }
   | { type: "tip"; text: string };
 
 function blankStep(type: LessonStep["type"]): LessonStep {
-  if (type === "word" || type === "sentence") return { type, target: "", kurdish_sorani: "", kurdish_badini: "", audio_url: "" };
+  if (type === "word" || type === "sentence") return { type, target: "", kurdish_sorani: "", kurdish_badini: "", audio_url: "", image_url: "" };
   if (type === "image") return { type, url: "", caption: "" };
   return { type, text: "" };
 }
@@ -852,14 +912,12 @@ function blockContentToSteps(content: unknown[]): { steps: LessonStep[]; summary
         kurdish_sorani: asStr(item.translation ?? item.kurdish_sorani),
         kurdish_badini: asStr(item.kurdish_badini),
         audio_url: item.audio || item.audio_url ? asAsset(item.audio ?? item.audio_url) : "",
+        image_url: item.image || item.image_url ? asAsset(item.image ?? item.image_url) : "",
       });
       summary.words++;
-      if (item.image) {
-        steps.push({ type: "image", url: asAsset(item.image), caption: "" });
-        summary.images++;
-      }
+      if (item.image || item.image_url) summary.images++;
       if (item.sentence) {
-        steps.push({ type: "sentence", target: asStr(item.sentence), kurdish_sorani: "", kurdish_badini: "", audio_url: "" });
+        steps.push({ type: "sentence", target: asStr(item.sentence), kurdish_sorani: "", kurdish_badini: "", audio_url: "", image_url: "" });
         summary.sentences++;
       }
     } else if (type === "sentence") {
@@ -869,6 +927,7 @@ function blockContentToSteps(content: unknown[]): { steps: LessonStep[]; summary
         kurdish_sorani: asStr(item.kurdish_sorani ?? item.translation),
         kurdish_badini: asStr(item.kurdish_badini),
         audio_url: item.audio || item.audio_url ? asAsset(item.audio ?? item.audio_url) : "",
+        image_url: item.image || item.image_url ? asAsset(item.image ?? item.image_url) : "",
       });
       summary.sentences++;
     } else if (type === "image") {
@@ -885,11 +944,14 @@ function blockContentToSteps(content: unknown[]): { steps: LessonStep[]; summary
   return { steps, summary };
 }
 
-function LessonStepsEditor({ value, onChange, sourceLanguage }: { value: LessonStep[]; onChange: (v: LessonStep[]) => void; sourceLanguage: string }) {
+function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { value: LessonStep[]; onChange: (v: LessonStep[]) => void; sourceLanguage: string; courseId?: string }) {
   const steps = value ?? [];
   const translate = useServerFn(translateLessonWords);
+  const makeImage = useServerFn(generateWordImage);
   const [translatingAll, setTranslatingAll] = useState(false);
   const [translatingIdx, setTranslatingIdx] = useState<number | null>(null);
+  const [imagingIdx, setImagingIdx] = useState<number | null>(null);
+  const [imagingAll, setImagingAll] = useState(false);
   const [mode, setMode] = useState<"builder" | "json">("builder");
 
   const update = (i: number, patch: Record<string, unknown>) => {
@@ -952,6 +1014,62 @@ function LessonStepsEditor({ value, onChange, sourceLanguage }: { value: LessonS
     }
   };
 
+  // Picture support: any word/sentence step can carry an illustration so learners
+  // grasp the meaning visually. Images are either generated with AI or uploaded.
+  const generateImageFor = async (i: number) => {
+    const s = steps[i];
+    if (!isWordOrSentence(s) || !s.target.trim()) return;
+    setImagingIdx(i);
+    try {
+      const res = await makeImage({ data: { word: s.target, hint: s.kurdish_sorani || undefined, course_id: courseId } });
+      update(i, { image_url: res.url });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setImagingIdx(null);
+    }
+  };
+
+  const generateAllMissingImages = async () => {
+    const targets = steps
+      .map((s, i) => ({ s, i }))
+      .filter(({ s }) => s.type === "word" && s.target.trim() && !s.image_url?.trim());
+    if (targets.length === 0) {
+      toast.info("Every word already has a picture.");
+      return;
+    }
+    setImagingAll(true);
+    const next = steps.slice();
+    let done = 0;
+    for (const { s, i } of targets) {
+      try {
+        const res = await makeImage({ data: { word: (s as { target: string }).target, course_id: courseId } });
+        next[i] = { ...next[i], image_url: res.url } as LessonStep;
+        done++;
+        onChange(next.slice());
+      } catch (e) {
+        toast.error(`${(s as { target: string }).target}: ${(e as Error).message}`);
+        break;
+      }
+    }
+    setImagingAll(false);
+    if (done) toast.success(`Generated ${done} picture${done === 1 ? "" : "s"}`);
+  };
+
+  const uploadImageFor = async (i: number, file: File) => {
+    setImagingIdx(i);
+    try {
+      const path = `${courseId ?? "words"}/up-${Date.now()}-${file.name}`;
+      const { error } = await supabase.storage.from("lesson-assets").upload(path, file, { contentType: file.type || undefined });
+      if (error) throw new Error(error.message);
+      update(i, { image_url: supabase.storage.from("lesson-assets").getPublicUrl(path).data.publicUrl });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setImagingIdx(null);
+    }
+  };
+
   return (
     <div className="grid gap-2">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -960,12 +1078,19 @@ function LessonStepsEditor({ value, onChange, sourceLanguage }: { value: LessonS
           <Button type="button" size="sm" variant={mode === "json" ? "default" : "ghost"} className="h-7 px-2.5" onClick={() => setMode("json")}>Paste JSON</Button>
         </div>
         {steps.some(isWordOrSentence) && (
-          <Button type="button" variant="secondary" size="sm" onClick={translateAllMissing} disabled={translatingAll}>
-            {translatingAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
-            Translate all with AI
-          </Button>
+          <div className="flex gap-2 flex-wrap">
+            <Button type="button" variant="secondary" size="sm" onClick={translateAllMissing} disabled={translatingAll}>
+              {translatingAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
+              Translate all with AI
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={generateAllMissingImages} disabled={imagingAll}>
+              {imagingAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <ImageIcon className="h-3 w-3 mr-1.5" />}
+              Generate missing pictures
+            </Button>
+          </div>
         )}
       </div>
+
 
       {mode === "json" ? (
         <div className="grid gap-1.5">
@@ -1030,6 +1155,26 @@ function LessonStepsEditor({ value, onChange, sourceLanguage }: { value: LessonS
                     </Button>
                   </div>
                   <Input placeholder="Audio URL (optional — leave blank to use text-to-speech)" value={s.audio_url ?? ""} onChange={(e) => update(i, { audio_url: e.target.value })} />
+                  <div className="rounded-md border bg-background p-2 grid gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-medium text-muted-foreground">Picture</span>
+                      <Button type="button" size="sm" variant="outline" className="h-7" disabled={imagingIdx === i || imagingAll || !s.target.trim()} onClick={() => generateImageFor(i)}>
+                        {imagingIdx === i ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <ImageIcon className="h-3 w-3 mr-1.5" />}
+                        {s.image_url ? "Regenerate with AI" : "Generate with AI"}
+                      </Button>
+                      <label className="text-xs underline cursor-pointer text-muted-foreground">
+                        upload
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImageFor(i, f); e.target.value = ""; }} />
+                      </label>
+                      {s.image_url && (
+                        <button type="button" className="text-xs text-destructive" onClick={() => update(i, { image_url: "" })}>remove</button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {s.image_url && <img src={s.image_url} alt="" className="h-14 w-14 rounded-md object-cover border" />}
+                      <Input dir="ltr" placeholder="Image URL (optional)" value={s.image_url ?? ""} onChange={(e) => update(i, { image_url: e.target.value })} />
+                    </div>
+                  </div>
                 </div>
               )}
               {s.type === "image" && (
@@ -1103,7 +1248,7 @@ function LessonForm({ value, onChange, lang }: { value: Record<string, unknown>;
       <div className="rounded-md border p-3 bg-muted/30">
         <Label>Words &amp; Sentences (step-by-step)</Label>
         <p className="text-xs text-muted-foreground mt-0.5 mb-3">Learners walk through these one at a time, before the quiz. Each word/sentence is read aloud automatically. Type the word — click the <Sparkles className="h-3 w-3 inline -mt-0.5" /> button or "Translate all with AI" to fill in the Kurdish fields instead of typing them yourself.</p>
-        <LessonStepsEditor value={(value.steps_json as LessonStep[]) ?? []} onChange={(v) => set("steps_json", v)} sourceLanguage={lang} />
+        <LessonStepsEditor value={(value.steps_json as LessonStep[]) ?? []} onChange={(v) => set("steps_json", v)} sourceLanguage={lang} courseId={value.course_id as string | undefined} />
       </div>
 
       <div>

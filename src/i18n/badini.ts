@@ -45,19 +45,16 @@ export const badini: typeof sorani = {
 
   // Onboarding step 1 — UI language
   onboarding_ui_lang_title: "کیژ زمانی دخوازی بکار بینی؟",
-  onboarding_ui_lang_sub:
-    "ئەوێ زمانی هەلبژێرە یێ کو زێدەتر خۆشە بۆ تە پێ بخوینی — پاشی ژی دشێی ب گۆهۆڕی.",
+  onboarding_ui_lang_sub: "ئەوێ زمانی هەلبژێرە یێ کو زێدەتر خۆشە بۆ تە پێ بخوینی — پاشی ژی دشێی ب گۆهۆڕی.",
   onboarding_ui_lang_confirm_title: "هەمی شت ئامادەیە!",
-  onboarding_ui_lang_confirm_body:
-    "ژ نکا ب دویڤ ئەڤ ئەپ دێ ب بادینی ڕێنمایی تە بکەت — هەر وانەیەک، دوگمەیەک و ئامۆژگارییەک.",
+  onboarding_ui_lang_confirm_body: "ژ نکا ب دویڤ ئەڤ ئەپ دێ ب بادینی ڕێنمایی تە بکەت — هەر وانەیەک، دوگمەیەک و ئامۆژگارییەک.",
 
   // Onboarding step 2 — target language
   onboarding_target_title: "چ زمانی دخوازی فێر ببی؟",
   onboarding_target_sub: "ئەم ب ئینگلیزی دەست پێ دکەین — زمانێن دی ب زوی تێن.",
   onboarding_coming_soon: "ب زوی تێت",
   onboarding_target_confirm_title: "هەلبژارتنەک باشە!",
-  onboarding_target_confirm_body:
-    "ئینگلیزی ب تەمامی ئامادەیە — وانە، پەیڤ، ڤیدیۆ و کتێب هەمی بۆ تە ئامادەن.",
+  onboarding_target_confirm_body: "ئینگلیزی ب تەمامی ئامادەیە — وانە، پەیڤ، ڤیدیۆ و کتێب هەمی بۆ تە ئامادەن.",
 
   // Onboarding step 3 — purpose
   onboarding_purpose_title: "بۆچی دخوازی ئینگلیزی فێر ببی؟",
@@ -75,8 +72,7 @@ export const badini: typeof sorani = {
   purpose_fun: "بۆ خۆشی و حەز",
   purpose_fun_sub: "فێربوون تنێ ژبەر حەز و بایەخ",
   onboarding_purpose_confirm_title: "باشە، هاتە تۆمارکرن!",
-  onboarding_purpose_confirm_body:
-    "ئەم دێ ڤێ ب بیر بینین — یارمەتیێ تە ددەت بۆ گەهشتنە وان وانان یێن گرنگ بۆ تە.",
+  onboarding_purpose_confirm_body: "ئەم دێ ڤێ ب بیر بینین — یارمەتیێ تە ددەت بۆ گەهشتنە وان وانان یێن گرنگ بۆ تە.",
 
   // Onboarding step 4 — level
   onboarding_level_title: "ئاستێ تە ب ئینگلیزی چاوایە؟",
@@ -104,8 +100,7 @@ export const badini: typeof sorani = {
   commitment_minutes_label: "خولەک د ڕۆژەکی دا",
   commitment_recommended: "پێشنیارکری",
   onboarding_commitment_confirm_title: "ئەڤە ئامانجەکا باشە!",
-  onboarding_commitment_confirm_body:
-    "ئەم دێ یارمەتیێ تە بدەین بۆ بەردەوامیێ ب بیرخستنێن رۆژانە و زنجیران — نوکە تو ئامادەیی بۆ دەستپێکرنێ.",
+  onboarding_commitment_confirm_body: "ئەم دێ یارمەتیێ تە بدەین بۆ بەردەوامیێ ب بیرخستنێن رۆژانە و زنجیران — نوکە تو ئامادەیی بۆ دەستپێکرنێ.",
   onboarding_save_error: "خەلەتیەک چێبوو د پاراستنا هەلبژارتنا تە دا. ژکەرەم دیسا هەول بدە.",
 
   menu: "مینیو",
@@ -266,7 +261,6 @@ export const badini: typeof sorani = {
   nav_about: "دەربارە",
   nav_pricing: "نرخ",
   nav_contact: "پەیوەندی",
-  nav_grade12: "پۆلی ١٢",
   footer_blurb: "پلاتفۆرمەکا فێرکرنا زمانی، بۆ کوردزمانان، ب زمانێ خۆت.",
   footer_product_heading: "بەرهەم",
   footer_company_heading: "کۆمپانیا",
@@ -433,18 +427,15 @@ export const badini: typeof sorani = {
   contact_form_note: "ئەڤە ئەپا ئیمەیلا تە ڤەدکەت دگەل پەیامێ ئامادە بۆ ناردنێ.",
   contact_copy_email: "کۆپیکرنا ناونیشانا ئیمەیلێ",
   contact_email_copied: "ناونیشانا ئیمەیلێ هاتە کۆپیکرن",
-
-  // Grade 12 English study companion (/grade-12)
-  grade12_eyebrow: "یارمەتیدەرێ پرۆگرامێ خوینا پۆلا ١٢",
-  grade12_title: "ئینگلیزیا پۆلا ١٢",
-  grade12_sub:
-    "شەش یەکێن یێن بابەتێن پرۆگرامێ ئینگلیزیا پۆلا ١٢یا حکومەتا هەرێما کوردستانێ ددنە ناڤ خۆ — ڕێزمان، پەیڤێن سەرەکی، خوینن و ڕاهێنانا مۆدێلا تاقیکرنێ، هەمی ل یەک شوینی.",
-  grade12_disclaimer:
-    "ڤێ پەڕێ بابەتێن گشتی یێن پرۆگرامێ سەنڕایز ١٢ (Sunrise 12) بکار ئینایە وەکی ماددەیەکا ڕاهێنانا زێدە و ب تەمامی ئۆریجینالە — هەمیشە ب دویڤ ماددەیا فەرمی یا مامۆستایێ خۆ بچە بۆ تاقیکرنێ.",
-  grade12_units_label: "یەکێن",
-  grade12_reading: "پارچەیا خوینینێ",
-  grade12_check_answers: "وەلامێن من بپشکنە",
-  grade12_score_label: "خالێ تە",
-  grade12_writing_prompt: "ڕاهێنانا نڤیسینێ",
-  grade12_exam_tips_title: "ئامۆژگاری بۆ تاقیکرنێ",
+  nav_grade12: "پۆلا ١٢",
+  grade12_eyebrow: "ئامادەکاریا پۆلا ١٢",
+  grade12_title: "ئینگلیزی یا پۆلا ١٢",
+  grade12_sub: "شەش یەکە بۆ ئامادەکرنا خواندکارێن پۆلا ١٢ێ هەرێما کوردستانێ بۆ تاقیکرنا ئینگلیزی.",
+  grade12_disclaimer: "ئەڤ بابەت هاریکارەکا سەربخۆ نە و پشکەک نینن ژ پەرتووکا فەرمی.",
+  grade12_units_label: "یەکە",
+  grade12_reading: "خواندن",
+  grade12_score_label: "نمرە",
+  grade12_check_answers: "پشکنینا بەرسڤان",
+  grade12_writing_prompt: "راهێنانا نڤیسینێ",
+  grade12_exam_tips_title: "شێرەتێن تاقیکرنێ",
 };

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PricingRouteImport } from './routes/pricing'
+import { Route as Grade12RouteImport } from './routes/grade-12'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AboutRouteImport } from './routes/about'
@@ -20,6 +21,7 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedOnboardingIndexRouteImport } from './routes/_authenticated/onboarding.index'
 import { Route as AuthenticatedVocabLangRouteImport } from './routes/_authenticated/vocab.$lang'
 import { Route as AuthenticatedVideosLangRouteImport } from './routes/_authenticated/videos.$lang'
 import { Route as AuthenticatedVideoIdRouteImport } from './routes/_authenticated/video.$id'
@@ -37,6 +39,11 @@ import { Route as AuthenticatedBookIdRouteImport } from './routes/_authenticated
 const PricingRoute = PricingRouteImport.update({
   id: '/pricing',
   path: '/pricing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Grade12Route = Grade12RouteImport.update({
+  id: '/grade-12',
+  path: '/grade-12',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContactRoute = ContactRouteImport.update({
@@ -88,6 +95,12 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedOnboardingIndexRoute =
+  AuthenticatedOnboardingIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedOnboardingRoute,
+  } as any)
 const AuthenticatedVocabLangRoute = AuthenticatedVocabLangRouteImport.update({
   id: '/vocab/$lang',
   path: '/vocab/$lang',
@@ -164,6 +177,7 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
   '/contact': typeof ContactRoute
+  '/grade-12': typeof Grade12Route
   '/pricing': typeof PricingRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -183,16 +197,17 @@ export interface FileRoutesByFullPath {
   '/video/$id': typeof AuthenticatedVideoIdRoute
   '/videos/$lang': typeof AuthenticatedVideosLangRoute
   '/vocab/$lang': typeof AuthenticatedVocabLangRoute
+  '/onboarding/': typeof AuthenticatedOnboardingIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
   '/contact': typeof ContactRoute
+  '/grade-12': typeof Grade12Route
   '/pricing': typeof PricingRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/onboarding': typeof AuthenticatedOnboardingRouteWithChildren
   '/settings': typeof AuthenticatedSettingsRoute
   '/speak': typeof AuthenticatedSpeakRoute
   '/book/$id': typeof AuthenticatedBookIdRoute
@@ -208,6 +223,7 @@ export interface FileRoutesByTo {
   '/video/$id': typeof AuthenticatedVideoIdRoute
   '/videos/$lang': typeof AuthenticatedVideosLangRoute
   '/vocab/$lang': typeof AuthenticatedVocabLangRoute
+  '/onboarding': typeof AuthenticatedOnboardingIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -216,6 +232,7 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
   '/contact': typeof ContactRoute
+  '/grade-12': typeof Grade12Route
   '/pricing': typeof PricingRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
@@ -235,6 +252,7 @@ export interface FileRoutesById {
   '/_authenticated/video/$id': typeof AuthenticatedVideoIdRoute
   '/_authenticated/videos/$lang': typeof AuthenticatedVideosLangRoute
   '/_authenticated/vocab/$lang': typeof AuthenticatedVocabLangRoute
+  '/_authenticated/onboarding/': typeof AuthenticatedOnboardingIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -243,6 +261,7 @@ export interface FileRouteTypes {
     | '/about'
     | '/auth'
     | '/contact'
+    | '/grade-12'
     | '/pricing'
     | '/admin'
     | '/dashboard'
@@ -262,16 +281,17 @@ export interface FileRouteTypes {
     | '/video/$id'
     | '/videos/$lang'
     | '/vocab/$lang'
+    | '/onboarding/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/about'
     | '/auth'
     | '/contact'
+    | '/grade-12'
     | '/pricing'
     | '/admin'
     | '/dashboard'
-    | '/onboarding'
     | '/settings'
     | '/speak'
     | '/book/$id'
@@ -287,6 +307,7 @@ export interface FileRouteTypes {
     | '/video/$id'
     | '/videos/$lang'
     | '/vocab/$lang'
+    | '/onboarding'
   id:
     | '__root__'
     | '/'
@@ -294,6 +315,7 @@ export interface FileRouteTypes {
     | '/about'
     | '/auth'
     | '/contact'
+    | '/grade-12'
     | '/pricing'
     | '/_authenticated/admin'
     | '/_authenticated/dashboard'
@@ -313,6 +335,7 @@ export interface FileRouteTypes {
     | '/_authenticated/video/$id'
     | '/_authenticated/videos/$lang'
     | '/_authenticated/vocab/$lang'
+    | '/_authenticated/onboarding/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -321,6 +344,7 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   AuthRoute: typeof AuthRoute
   ContactRoute: typeof ContactRoute
+  Grade12Route: typeof Grade12Route
   PricingRoute: typeof PricingRoute
 }
 
@@ -331,6 +355,13 @@ declare module '@tanstack/react-router' {
       path: '/pricing'
       fullPath: '/pricing'
       preLoaderRoute: typeof PricingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grade-12': {
+      id: '/grade-12'
+      path: '/grade-12'
+      fullPath: '/grade-12'
+      preLoaderRoute: typeof Grade12RouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contact': {
@@ -402,6 +433,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin'
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/onboarding/': {
+      id: '/_authenticated/onboarding/'
+      path: '/'
+      fullPath: '/onboarding/'
+      preLoaderRoute: typeof AuthenticatedOnboardingIndexRouteImport
+      parentRoute: typeof AuthenticatedOnboardingRoute
     }
     '/_authenticated/vocab/$lang': {
       id: '/_authenticated/vocab/$lang'
@@ -502,6 +540,7 @@ interface AuthenticatedOnboardingRouteChildren {
   AuthenticatedOnboardingLevelRoute: typeof AuthenticatedOnboardingLevelRoute
   AuthenticatedOnboardingPurposeRoute: typeof AuthenticatedOnboardingPurposeRoute
   AuthenticatedOnboardingTargetRoute: typeof AuthenticatedOnboardingTargetRoute
+  AuthenticatedOnboardingIndexRoute: typeof AuthenticatedOnboardingIndexRoute
 }
 
 const AuthenticatedOnboardingRouteChildren: AuthenticatedOnboardingRouteChildren =
@@ -511,6 +550,7 @@ const AuthenticatedOnboardingRouteChildren: AuthenticatedOnboardingRouteChildren
     AuthenticatedOnboardingLevelRoute: AuthenticatedOnboardingLevelRoute,
     AuthenticatedOnboardingPurposeRoute: AuthenticatedOnboardingPurposeRoute,
     AuthenticatedOnboardingTargetRoute: AuthenticatedOnboardingTargetRoute,
+    AuthenticatedOnboardingIndexRoute: AuthenticatedOnboardingIndexRoute,
   }
 
 const AuthenticatedOnboardingRouteWithChildren =
@@ -561,18 +601,9 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   AuthRoute: AuthRoute,
   ContactRoute: ContactRoute,
+  Grade12Route: Grade12Route,
   PricingRoute: PricingRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
