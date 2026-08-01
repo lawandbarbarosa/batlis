@@ -28,6 +28,7 @@ export function SiteHeader() {
 
   const navLinks = [
     { to: "/" as const, label: t("nav_home") },
+    { to: "/grade-12" as const, label: t("nav_grade12") },
     { to: "/about" as const, label: t("nav_about") },
     { to: "/pricing" as const, label: t("nav_pricing") },
     { to: "/contact" as const, label: t("nav_contact") },
