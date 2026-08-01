@@ -35,6 +35,11 @@ export function SiteFooter() {
               </Link>
             </li>
             <li>
+              <Link to="/grade-12" className="hover:text-foreground transition-colors">
+                {t("nav_grade12")}
+              </Link>
+            </li>
+            <li>
               <Link to="/pricing" className="hover:text-foreground transition-colors">
                 {t("nav_pricing")}
               </Link>
