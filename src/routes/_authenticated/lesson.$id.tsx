@@ -20,8 +20,8 @@ export const Route = createFileRoute("/_authenticated/lesson/$id")({
 type Step = "intro" | "words" | "exercises" | "result";
 
 type LessonStep =
-  | { type: "word"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string }
-  | { type: "sentence"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string }
+  | { type: "word"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string; image_url?: string }
+  | { type: "sentence"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string; image_url?: string }
   | { type: "image"; url: string; caption?: string }
   | { type: "tip"; text: string };
 
@@ -165,6 +165,13 @@ function LessonRunner() {
           <div className="bento-card p-6 sm:p-10 text-center min-h-[280px] flex flex-col justify-center">
             {(s?.type === "word" || s?.type === "sentence") && (
               <>
+                {s.image_url && (
+                  <img
+                    src={s.image_url}
+                    alt={s.target}
+                    className="max-h-52 w-auto mx-auto mb-5 rounded-xl squircle object-contain"
+                  />
+                )}
                 <div className="flex items-center justify-center gap-3 flex-wrap">
                   <div className={s.type === "word" ? "text-4xl sm:text-5xl font-display font-bold" : "text-2xl sm:text-3xl font-display font-semibold"} dir="ltr">
                     {s.target}

@@ -722,8 +722,8 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
   };
 
   const runSave = async () => {
-    let steps = flowSteps;
-    let titleEn = flowTitle.trim();
+    const steps = flowSteps;
+    const titleEn = flowTitle.trim();
     if (!steps) {
       if (!buildFlow()) return;
       // buildFlow's state isn't visible yet in this tick — ask the admin to review first.
