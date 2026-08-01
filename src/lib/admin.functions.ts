@@ -693,6 +693,62 @@ export const generateWordMeaning = createServerFn({ method: "POST" })
     };
   });
 
+/* -------------------- AI: GENERATE AN ILLUSTRATION FOR A LESSON WORD -------------------- */
+// Admins can attach a picture to any word/sentence step so learners grasp the meaning
+// visually. This generates a clean, caption-free illustration with the Lovable AI image
+// gateway, stores it in the public "lesson-assets" bucket and hands back a public URL that
+// gets saved straight onto the step as `image_url`.
+export const generateWordImage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({
+      word: z.string().min(1).max(200),
+      hint: z.string().max(300).optional(),
+      course_id: z.string().uuid().optional(),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context);
+    const key = process.env.LOVABLE_API_KEY;
+    if (!key) throw new Error("Lovable AI is not connected");
+
+    const prompt =
+      `A simple, friendly flat-illustration that clearly shows the meaning of the word "${data.word}"` +
+      (data.hint ? ` (context: ${data.hint})` : "") +
+      `. Language-learning flashcard art: one clear subject, soft plain background, warm colours, no text, no letters, no watermark.`;
+
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": key },
+      body: JSON.stringify({
+        model: "google/gemini-3-pro-image",
+        messages: [{ role: "user", content: prompt }],
+        modalities: ["image", "text"],
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      if (res.status === 429) throw new Error("AI rate limit reached. Try again shortly.");
+      if (res.status === 402) throw new Error("AI credits exhausted. Add credits in your workspace.");
+      throw new Error(`Image generation failed [${res.status}]: ${t}`);
+    }
+    const json = (await res.json()) as { data?: Array<{ b64_json?: string }> };
+    const b64 = json.data?.[0]?.b64_json;
+    if (!b64) throw new Error("The image model returned no image. Try a different word.");
+
+    const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const slug = data.word.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "word";
+    const path = `${data.course_id ?? "words"}/ai-${slug}-${Date.now()}.png`;
+    const { error } = await context.supabase.storage
+      .from("lesson-assets")
+      .upload(path, bin, { contentType: "image/png", upsert: false });
+    if (error) throw new Error(`Could not save the image: ${error.message}`);
+
+    const { data: pub } = context.supabase.storage.from("lesson-assets").getPublicUrl(path);
+    return { url: pub.publicUrl };
+  });
+
+
 /* -------------------- SPEECH-TO-TEXT: TRANSCRIBE UPLOADED BOOK AUDIO -------------------- */
 // An admin records or finds an MP3 of the book being read aloud (e.g. one file per
 // paragraph or page) and uploads it directly to the public "book-audio" bucket from the
