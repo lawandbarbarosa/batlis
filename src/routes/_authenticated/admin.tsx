@@ -852,14 +852,12 @@ function blockContentToSteps(content: unknown[]): { steps: LessonStep[]; summary
         kurdish_sorani: asStr(item.translation ?? item.kurdish_sorani),
         kurdish_badini: asStr(item.kurdish_badini),
         audio_url: item.audio || item.audio_url ? asAsset(item.audio ?? item.audio_url) : "",
+        image_url: item.image || item.image_url ? asAsset(item.image ?? item.image_url) : "",
       });
       summary.words++;
-      if (item.image) {
-        steps.push({ type: "image", url: asAsset(item.image), caption: "" });
-        summary.images++;
-      }
+      if (item.image || item.image_url) summary.images++;
       if (item.sentence) {
-        steps.push({ type: "sentence", target: asStr(item.sentence), kurdish_sorani: "", kurdish_badini: "", audio_url: "" });
+        steps.push({ type: "sentence", target: asStr(item.sentence), kurdish_sorani: "", kurdish_badini: "", audio_url: "", image_url: "" });
         summary.sentences++;
       }
     } else if (type === "sentence") {
@@ -869,6 +867,7 @@ function blockContentToSteps(content: unknown[]): { steps: LessonStep[]; summary
         kurdish_sorani: asStr(item.kurdish_sorani ?? item.translation),
         kurdish_badini: asStr(item.kurdish_badini),
         audio_url: item.audio || item.audio_url ? asAsset(item.audio ?? item.audio_url) : "",
+        image_url: item.image || item.image_url ? asAsset(item.image ?? item.image_url) : "",
       });
       summary.sentences++;
     } else if (type === "image") {
