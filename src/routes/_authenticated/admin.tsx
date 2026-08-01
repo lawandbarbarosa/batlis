@@ -635,6 +635,10 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addedCount, setAddedCount] = useState(0);
+  // The parsed JSON turned into an editable flow, so each step can be tweaked
+  // (translations, pictures, order) before the lesson is saved.
+  const [flowTitle, setFlowTitle] = useState("");
+  const [flowSteps, setFlowSteps] = useState<LessonStep[] | null>(null);
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
