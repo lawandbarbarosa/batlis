@@ -1096,6 +1096,26 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
                     </Button>
                   </div>
                   <Input placeholder="Audio URL (optional — leave blank to use text-to-speech)" value={s.audio_url ?? ""} onChange={(e) => update(i, { audio_url: e.target.value })} />
+                  <div className="rounded-md border bg-background p-2 grid gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-medium text-muted-foreground">Picture</span>
+                      <Button type="button" size="sm" variant="outline" className="h-7" disabled={imagingIdx === i || imagingAll || !s.target.trim()} onClick={() => generateImageFor(i)}>
+                        {imagingIdx === i ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <ImageIcon className="h-3 w-3 mr-1.5" />}
+                        {s.image_url ? "Regenerate with AI" : "Generate with AI"}
+                      </Button>
+                      <label className="text-xs underline cursor-pointer text-muted-foreground">
+                        upload
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImageFor(i, f); e.target.value = ""; }} />
+                      </label>
+                      {s.image_url && (
+                        <button type="button" className="text-xs text-destructive" onClick={() => update(i, { image_url: "" })}>remove</button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {s.image_url && <img src={s.image_url} alt="" className="h-14 w-14 rounded-md object-cover border" />}
+                      <Input dir="ltr" placeholder="Image URL (optional)" value={s.image_url ?? ""} onChange={(e) => update(i, { image_url: e.target.value })} />
+                    </div>
+                  </div>
                 </div>
               )}
               {s.type === "image" && (
