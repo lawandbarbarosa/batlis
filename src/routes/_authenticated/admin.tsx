@@ -40,6 +40,7 @@ import {
   translateTranscriptLines,
   translateLessonWords,
   generateWordMeaning,
+  generateWordImage,
   transcribeBookAudio,
 } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
