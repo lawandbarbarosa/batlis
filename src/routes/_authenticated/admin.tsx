@@ -1189,7 +1189,7 @@ function LessonForm({ value, onChange, lang }: { value: Record<string, unknown>;
       <div className="rounded-md border p-3 bg-muted/30">
         <Label>Words &amp; Sentences (step-by-step)</Label>
         <p className="text-xs text-muted-foreground mt-0.5 mb-3">Learners walk through these one at a time, before the quiz. Each word/sentence is read aloud automatically. Type the word — click the <Sparkles className="h-3 w-3 inline -mt-0.5" /> button or "Translate all with AI" to fill in the Kurdish fields instead of typing them yourself.</p>
-        <LessonStepsEditor value={(value.steps_json as LessonStep[]) ?? []} onChange={(v) => set("steps_json", v)} sourceLanguage={lang} />
+        <LessonStepsEditor value={(value.steps_json as LessonStep[]) ?? []} onChange={(v) => set("steps_json", v)} sourceLanguage={lang} courseId={value.course_id as string | undefined} />
       </div>
 
       <div>
