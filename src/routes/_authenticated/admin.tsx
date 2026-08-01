@@ -955,6 +955,62 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
     }
   };
 
+  // Picture support: any word/sentence step can carry an illustration so learners
+  // grasp the meaning visually. Images are either generated with AI or uploaded.
+  const generateImageFor = async (i: number) => {
+    const s = steps[i];
+    if (!isWordOrSentence(s) || !s.target.trim()) return;
+    setImagingIdx(i);
+    try {
+      const res = await makeImage({ data: { word: s.target, hint: s.kurdish_sorani || undefined, course_id: courseId } });
+      update(i, { image_url: res.url });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setImagingIdx(null);
+    }
+  };
+
+  const generateAllMissingImages = async () => {
+    const targets = steps
+      .map((s, i) => ({ s, i }))
+      .filter(({ s }) => s.type === "word" && s.target.trim() && !s.image_url?.trim());
+    if (targets.length === 0) {
+      toast.info("Every word already has a picture.");
+      return;
+    }
+    setImagingAll(true);
+    const next = steps.slice();
+    let done = 0;
+    for (const { s, i } of targets) {
+      try {
+        const res = await makeImage({ data: { word: (s as { target: string }).target, course_id: courseId } });
+        next[i] = { ...next[i], image_url: res.url } as LessonStep;
+        done++;
+        onChange(next.slice());
+      } catch (e) {
+        toast.error(`${(s as { target: string }).target}: ${(e as Error).message}`);
+        break;
+      }
+    }
+    setImagingAll(false);
+    if (done) toast.success(`Generated ${done} picture${done === 1 ? "" : "s"}`);
+  };
+
+  const uploadImageFor = async (i: number, file: File) => {
+    setImagingIdx(i);
+    try {
+      const path = `${courseId ?? "words"}/up-${Date.now()}-${file.name}`;
+      const { error } = await supabase.storage.from("lesson-assets").upload(path, file, { contentType: file.type || undefined });
+      if (error) throw new Error(error.message);
+      update(i, { image_url: supabase.storage.from("lesson-assets").getPublicUrl(path).data.publicUrl });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setImagingIdx(null);
+    }
+  };
+
   return (
     <div className="grid gap-2">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -963,12 +1019,19 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
           <Button type="button" size="sm" variant={mode === "json" ? "default" : "ghost"} className="h-7 px-2.5" onClick={() => setMode("json")}>Paste JSON</Button>
         </div>
         {steps.some(isWordOrSentence) && (
-          <Button type="button" variant="secondary" size="sm" onClick={translateAllMissing} disabled={translatingAll}>
-            {translatingAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
-            Translate all with AI
-          </Button>
+          <div className="flex gap-2 flex-wrap">
+            <Button type="button" variant="secondary" size="sm" onClick={translateAllMissing} disabled={translatingAll}>
+              {translatingAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
+              Translate all with AI
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={generateAllMissingImages} disabled={imagingAll}>
+              {imagingAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <ImageIcon className="h-3 w-3 mr-1.5" />}
+              Generate missing pictures
+            </Button>
+          </div>
         )}
       </div>
+
 
       {mode === "json" ? (
         <div className="grid gap-1.5">
