@@ -798,13 +798,13 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
 }
 
 type LessonStep =
-  | { type: "word"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string }
-  | { type: "sentence"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string }
+  | { type: "word"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string; image_url?: string }
+  | { type: "sentence"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string; image_url?: string }
   | { type: "image"; url: string; caption?: string }
   | { type: "tip"; text: string };
 
 function blankStep(type: LessonStep["type"]): LessonStep {
-  if (type === "word" || type === "sentence") return { type, target: "", kurdish_sorani: "", kurdish_badini: "", audio_url: "" };
+  if (type === "word" || type === "sentence") return { type, target: "", kurdish_sorani: "", kurdish_badini: "", audio_url: "", image_url: "" };
   if (type === "image") return { type, url: "", caption: "" };
   return { type, text: "" };
 }
