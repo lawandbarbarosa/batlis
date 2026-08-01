@@ -45,16 +45,19 @@ export const english: typeof sorani = {
 
   // Onboarding step 1 — UI language
   onboarding_ui_lang_title: "Which language do you want to use?",
-  onboarding_ui_lang_sub: "Pick whichever you're most comfortable reading — you can change this later in Settings.",
+  onboarding_ui_lang_sub:
+    "Pick whichever you're most comfortable reading — you can change this later in Settings.",
   onboarding_ui_lang_confirm_title: "You're all set!",
-  onboarding_ui_lang_confirm_body: "This app will guide you in English from here on — every lesson, button, and tip.",
+  onboarding_ui_lang_confirm_body:
+    "This app will guide you in English from here on — every lesson, button, and tip.",
 
   // Onboarding step 2 — target language
   onboarding_target_title: "What language do you want to learn?",
   onboarding_target_sub: "We're starting with English — more languages are on the way.",
   onboarding_coming_soon: "Coming soon",
   onboarding_target_confirm_title: "Great choice!",
-  onboarding_target_confirm_body: "English is fully available — lessons, vocabulary, videos, and books are all ready for you.",
+  onboarding_target_confirm_body:
+    "English is fully available — lessons, vocabulary, videos, and books are all ready for you.",
 
   // Onboarding step 3 — purpose
   onboarding_purpose_title: "Why are you learning English?",
@@ -72,7 +75,8 @@ export const english: typeof sorani = {
   purpose_fun: "Just for Fun",
   purpose_fun_sub: "Learning out of pure interest and curiosity",
   onboarding_purpose_confirm_title: "Good to know!",
-  onboarding_purpose_confirm_body: "We'll keep that in mind as you go — it helps us point you toward the lessons that matter most to you.",
+  onboarding_purpose_confirm_body:
+    "We'll keep that in mind as you go — it helps us point you toward the lessons that matter most to you.",
 
   // Onboarding step 4 — level
   onboarding_level_title: "What's your level in English?",
@@ -100,7 +104,8 @@ export const english: typeof sorani = {
   commitment_minutes_label: "Minutes per day",
   commitment_recommended: "Recommended",
   onboarding_commitment_confirm_title: "That's a great goal!",
-  onboarding_commitment_confirm_body: "We'll help you stick to it with daily reminders and streaks — you're ready to start learning.",
+  onboarding_commitment_confirm_body:
+    "We'll help you stick to it with daily reminders and streaks — you're ready to start learning.",
   onboarding_save_error: "Something went wrong saving that. Please try again.",
 
   menu: "Menu",
@@ -260,6 +265,7 @@ export const english: typeof sorani = {
   nav_about: "About",
   nav_pricing: "Pricing",
   nav_contact: "Contact",
+  nav_grade12: "Grade 12",
   footer_blurb:
     "A complete language-learning platform built from the ground up for Kurdish speakers — every lesson, every instruction, in your own language.",
   footer_product_heading: "Product",
@@ -437,4 +443,18 @@ export const english: typeof sorani = {
   contact_form_note: "This opens your email app with your message ready to send.",
   contact_copy_email: "Copy email address",
   contact_email_copied: "Email address copied",
+
+  // Grade 12 English study companion (/grade-12)
+  grade12_eyebrow: "KRG Grade 12 Curriculum Companion",
+  grade12_title: "Grade 12 English",
+  grade12_sub:
+    "Six units following the general themes of the KRG Grade 12 English curriculum — grammar, key vocabulary, reading, and exam-style practice, all in one place.",
+  grade12_disclaimer:
+    "This companion follows the general themes of the Sunrise 12 curriculum and is original practice material — always follow your teacher's official material for the exam.",
+  grade12_units_label: "Units",
+  grade12_reading: "Reading Passage",
+  grade12_check_answers: "Check My Answers",
+  grade12_score_label: "Your score",
+  grade12_writing_prompt: "Writing Practice",
+  grade12_exam_tips_title: "Exam Tips",
 };
