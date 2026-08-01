@@ -885,11 +885,14 @@ function blockContentToSteps(content: unknown[]): { steps: LessonStep[]; summary
   return { steps, summary };
 }
 
-function LessonStepsEditor({ value, onChange, sourceLanguage }: { value: LessonStep[]; onChange: (v: LessonStep[]) => void; sourceLanguage: string }) {
+function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { value: LessonStep[]; onChange: (v: LessonStep[]) => void; sourceLanguage: string; courseId?: string }) {
   const steps = value ?? [];
   const translate = useServerFn(translateLessonWords);
+  const makeImage = useServerFn(generateWordImage);
   const [translatingAll, setTranslatingAll] = useState(false);
   const [translatingIdx, setTranslatingIdx] = useState<number | null>(null);
+  const [imagingIdx, setImagingIdx] = useState<number | null>(null);
+  const [imagingAll, setImagingAll] = useState(false);
   const [mode, setMode] = useState<"builder" | "json">("builder");
 
   const update = (i: number, patch: Record<string, unknown>) => {
