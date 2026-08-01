@@ -46,16 +46,19 @@ const s = {
 
   // Onboarding step 1 — UI language
   onboarding_ui_lang_title: "کام زمان دەتەوێت بەکاری بهێنیت؟",
-  onboarding_ui_lang_sub: "ئەو زمانە هەڵبژێرە کە زیاتر خۆشت خوێندنەوەیەتی — دواتریش دەتوانیت لە ڕێکخستنەکان بیگۆڕیت.",
+  onboarding_ui_lang_sub:
+    "ئەو زمانە هەڵبژێرە کە زیاتر خۆشت خوێندنەوەیەتی — دواتریش دەتوانیت لە ڕێکخستنەکان بیگۆڕیت.",
   onboarding_ui_lang_confirm_title: "هەموو شتێک ئامادەیە!",
-  onboarding_ui_lang_confirm_body: "لەمەودوا ئەم ئەپە بە کوردیی سۆرانی ڕێنماییت دەکات — هەموو وانە، دوگمە و ئامۆژگارییەک.",
+  onboarding_ui_lang_confirm_body:
+    "لەمەودوا ئەم ئەپە بە کوردیی سۆرانی ڕێنماییت دەکات — هەموو وانە، دوگمە و ئامۆژگارییەک.",
 
   // Onboarding step 2 — target language
   onboarding_target_title: "چ زمانێک دەتەوێت فێری بیت؟",
   onboarding_target_sub: "لەگەڵ ئینگلیزی دەستپێدەکەین — زمانی زیاتر بەم زووانە دێن.",
   onboarding_coming_soon: "بەم زووانە",
   onboarding_target_confirm_title: "هەڵبژاردنێکی باشە!",
-  onboarding_target_confirm_body: "ئینگلیزی بە تەواوی ئامادەیە — وانەکان، وشەکان، ڤیدیۆکان و کتێبەکان هەموو بۆت ئامادەن.",
+  onboarding_target_confirm_body:
+    "ئینگلیزی بە تەواوی ئامادەیە — وانەکان، وشەکان، ڤیدیۆکان و کتێبەکان هەموو بۆت ئامادەن.",
 
   // Onboarding step 3 — purpose
   onboarding_purpose_title: "بۆچی دەتەوێت ئینگلیزی فێربیت؟",
@@ -73,7 +76,8 @@ const s = {
   purpose_fun: "بۆ خۆشی و حەز",
   purpose_fun_sub: "فێربوون تەنها لەبەر حەز و بایەخ",
   onboarding_purpose_confirm_title: "باشە، تۆمارکرا!",
-  onboarding_purpose_confirm_body: "لە کاتی فێربوونیشدا لەبیرمان دەبێت — یارمەتیت دەدات بگەیتە ئەو وانانەی زۆر پێویستن بۆت.",
+  onboarding_purpose_confirm_body:
+    "لە کاتی فێربوونیشدا لەبیرمان دەبێت — یارمەتیت دەدات بگەیتە ئەو وانانەی زۆر پێویستن بۆت.",
 
   // Onboarding step 4 — level
   onboarding_level_title: "ئاستت لە ئینگلیزیدا چۆنە؟",
@@ -101,7 +105,8 @@ const s = {
   commitment_minutes_label: "خولەک لە ڕۆژێکدا",
   commitment_recommended: "پێشنیارکراو",
   onboarding_commitment_confirm_title: "ئەمە ئامانجێکی باشە!",
-  onboarding_commitment_confirm_body: "یارمەتیت دەدەین بەردەوام بیت لەگەڵ بیرخەرەوەی ڕۆژانە و زنجیرە — ئێستا ئامادەی بۆ دەستپێکردنیت.",
+  onboarding_commitment_confirm_body:
+    "یارمەتیت دەدەین بەردەوام بیت لەگەڵ بیرخەرەوەی ڕۆژانە و زنجیرە — ئێستا ئامادەی بۆ دەستپێکردنیت.",
   onboarding_save_error: "هەڵەیەک ڕوویدا لە پاراستنی هەڵبژاردەکەت. تکایە دووبارە هەوڵبدەرەوە.",
 
   // Dashboard
@@ -272,6 +277,7 @@ const s = {
   nav_about: "دەربارە",
   nav_pricing: "نرخ",
   nav_contact: "پەیوەندی",
+  nav_grade12: "پۆلی ١٢",
   footer_blurb:
     "پلاتفۆرمێکی تەواوی فێربوونی زمان کە لە بنەڕەتەوە بۆ کوردزمانان دروستکراوە — هەموو وانەیەک و هەموو ڕێنماییەک بە زمانی خۆت.",
   footer_product_heading: "بەرهەم",
@@ -455,6 +461,20 @@ const s = {
   contact_form_note: "ئەمە ئەپی ئیمەیلەکەت دەکاتەوە لەگەڵ پەیامەکەت ئامادە بۆ ناردن.",
   contact_copy_email: "کۆپیکردنی ناونیشانی ئیمەیل",
   contact_email_copied: "ناونیشانی ئیمەیل کۆپیکرا",
+
+  // Grade 12 English study companion (/grade-12)
+  grade12_eyebrow: "یاریدەدەری بەرنامەی خوێندنی پۆلی ١٢",
+  grade12_title: "ئینگلیزیی پۆلی ١٢",
+  grade12_sub:
+    "شەش یەکە کە بابەتەکانی بەرنامەی ئینگلیزیی پۆلی ١٢ی حکوومەتی هەرێمی کوردستان دەگرنەوە — ڕێزمان، وشەی سەرەکی، خوێندنەوە و ڕاهێنانی شێوەی ئیمتیحان، هەموو لە یەک شوێن.",
+  grade12_disclaimer:
+    "ئەم لاپەڕەیە بابەتە گشتییەکانی بەرنامەی سەنڕایز ١٢ (Sunrise 12) بەکاردەهێنێت وەک ماددەی ڕاهێنانی زیادە و بۆتەی ئۆریجینالە — هەمیشە پابەندی ماددەی فەرمیی مامۆستاکەت بە بۆ ئیمتیحان.",
+  grade12_units_label: "یەکەکان",
+  grade12_reading: "پەڕەی خوێندنەوە",
+  grade12_check_answers: "وەڵامەکانم بپشکنە",
+  grade12_score_label: "خاڵی تۆ",
+  grade12_writing_prompt: "ڕاهێنانی نووسین",
+  grade12_exam_tips_title: "ئامۆژگاری بۆ ئیمتیحان",
 } as const;
 
 export type TranslationKey = keyof typeof s;
