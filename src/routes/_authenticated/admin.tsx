@@ -1201,9 +1201,13 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
               {translatingAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
               Translate all with AI
             </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={generateAllMissingImages} disabled={imagingAll}>
+            <Button type="button" variant="secondary" size="sm" onClick={findAllMissingPhotos} disabled={photosAll || imagingAll}>
+              {photosAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Search className="h-3 w-3 mr-1.5" />}
+              Find missing photos
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={generateAllMissingImages} disabled={imagingAll || photosAll}>
               {imagingAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <ImageIcon className="h-3 w-3 mr-1.5" />}
-              Generate missing pictures
+              Generate missing pictures (AI)
             </Button>
           </div>
         )}
