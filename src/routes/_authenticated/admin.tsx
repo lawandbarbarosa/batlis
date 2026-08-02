@@ -1116,6 +1116,78 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
     }
   };
 
+  // --- Stock photo search (Pixabay when a key is set, otherwise Openverse) ---
+  const runPhotoSearch = async (q: string) => {
+    if (!q.trim()) return;
+    setPhotoLoading(true);
+    try {
+      const res = await findPhotos({ data: { query: q.trim(), limit: 12 } });
+      setPhotoHits(res.hits);
+      if (res.hits.length === 0) toast.info(`No photos found for "${q}". Try a simpler word.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setPhotoLoading(false);
+    }
+  };
+
+  const openPhotoPicker = (i: number) => {
+    const s = steps[i];
+    const q = isWordOrSentence(s) ? s.target : "";
+    setPhotoFor(i);
+    setPhotoQuery(q);
+    setPhotoHits([]);
+    if (q.trim()) void runPhotoSearch(q);
+  };
+
+  const choosePhoto = async (url: string) => {
+    if (photoFor === null) return;
+    const s = steps[photoFor];
+    setPhotoPicking(url);
+    try {
+      const res = await importPhoto({ data: { url, word: isWordOrSentence(s) ? s.target : undefined, course_id: courseId } });
+      update(photoFor, { image_url: res.url });
+      setPhotoFor(null);
+      toast.success("Picture added");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setPhotoPicking(null);
+    }
+  };
+
+  const findAllMissingPhotos = async () => {
+    const targets = steps
+      .map((s, i) => ({ s, i }))
+      .filter(({ s }) => s.type === "word" && s.target.trim() && !s.image_url?.trim());
+    if (targets.length === 0) {
+      toast.info("Every word already has a picture.");
+      return;
+    }
+    setPhotosAll(true);
+    const next = steps.slice();
+    let done = 0;
+    for (const { s, i } of targets) {
+      const word = (s as { target: string }).target;
+      try {
+        const res = await findPhotos({ data: { query: word, limit: 1 } });
+        const hit = res.hits[0];
+        if (!hit) continue;
+        const saved = await importPhoto({ data: { url: hit.url, word, course_id: courseId } });
+        next[i] = { ...next[i], image_url: saved.url } as LessonStep;
+        done++;
+        onChange(next.slice());
+      } catch (e) {
+        toast.error(`${word}: ${(e as Error).message}`);
+        break;
+      }
+    }
+    setPhotosAll(false);
+    toast[done ? "success" : "info"](done ? `Added ${done} photo${done === 1 ? "" : "s"}` : "No photos found for the remaining words.");
+  };
+
+
+
   return (
     <div className="grid gap-2">
       <div className="flex items-center justify-between gap-2 flex-wrap">
