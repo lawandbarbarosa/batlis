@@ -984,11 +984,21 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
   const steps = value ?? [];
   const translate = useServerFn(translateLessonWords);
   const makeImage = useServerFn(generateWordImage);
+  const findPhotos = useServerFn(searchWordPhotos);
+  const importPhoto = useServerFn(importPhotoToLibrary);
   const [translatingAll, setTranslatingAll] = useState(false);
   const [translatingIdx, setTranslatingIdx] = useState<number | null>(null);
   const [imagingIdx, setImagingIdx] = useState<number | null>(null);
   const [imagingAll, setImagingAll] = useState(false);
   const [mode, setMode] = useState<"builder" | "json">("builder");
+  // Stock-photo picker: real photos usually explain a concrete word better than AI art.
+  const [photoFor, setPhotoFor] = useState<number | null>(null);
+  const [photoQuery, setPhotoQuery] = useState("");
+  const [photoHits, setPhotoHits] = useState<{ url: string; thumb: string; credit: string }[]>([]);
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoPicking, setPhotoPicking] = useState<string | null>(null);
+  const [photosAll, setPhotosAll] = useState(false);
+
 
   const update = (i: number, patch: Record<string, unknown>) => {
     const next = steps.slice();
