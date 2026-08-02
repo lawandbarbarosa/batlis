@@ -1280,9 +1280,13 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
                   <div className="rounded-md border bg-background p-2 grid gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-medium text-muted-foreground">Picture</span>
-                      <Button type="button" size="sm" variant="outline" className="h-7" disabled={imagingIdx === i || imagingAll || !s.target.trim()} onClick={() => generateImageFor(i)}>
+                      <Button type="button" size="sm" variant="outline" className="h-7" disabled={!s.target.trim()} onClick={() => openPhotoPicker(i)}>
+                        <Search className="h-3 w-3 mr-1.5" />
+                        Find photo
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" className="h-7" disabled={imagingIdx === i || imagingAll || !s.target.trim()} onClick={() => generateImageFor(i)}>
                         {imagingIdx === i ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <ImageIcon className="h-3 w-3 mr-1.5" />}
-                        {s.image_url ? "Regenerate with AI" : "Generate with AI"}
+                        {s.image_url ? "Regenerate with AI" : "AI illustration"}
                       </Button>
                       <label className="text-xs underline cursor-pointer text-muted-foreground">
                         upload
