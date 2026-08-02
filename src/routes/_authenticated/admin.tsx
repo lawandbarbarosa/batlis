@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { AppShell } from "@/components/app-shell";
@@ -635,10 +635,15 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addedCount, setAddedCount] = useState(0);
-  // The parsed JSON turned into an editable flow, so each step can be tweaked
-  // (translations, pictures, order) before the lesson is saved.
+  // The flow mirrors the pasted JSON live: whenever the JSON (or the selected
+  // block, or an uploaded asset) changes, the flow below is rebuilt from it.
+  // Edits made in the flow stick until the JSON changes again.
+  const [blockIdx, setBlockIdx] = useState(0);
   const [flowTitle, setFlowTitle] = useState("");
   const [flowSteps, setFlowSteps] = useState<LessonStep[] | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [blockTitles, setBlockTitles] = useState<string[]>([]);
+  const [summary, setSummary] = useState<ImportSummary | null>(null);
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -662,72 +667,81 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
 
   const removeAsset = (name: string) => setAssets((prev) => { const next = { ...prev }; delete next[name]; return next; });
 
-  const resolveAsset = (ref: string): string => {
-    if (!ref) return "";
-    if (/^https?:\/\//i.test(ref)) return ref;
-    const base = ref.split("/").pop() ?? ref;
-    return assets[base] ?? ref;
-  };
+  // Live parse: JSON in → flow out. Debounced a touch so typing stays smooth.
+  useEffect(() => {
+    const resolveAsset = (ref: string): string => {
+      if (!ref) return "";
+      if (/^https?:\/\//i.test(ref)) return ref;
+      const base = ref.split("/").pop() ?? ref;
+      return assets[base] ?? ref;
+    };
 
-  // Turn the pasted JSON into an editable flow (title + steps). Nothing is saved yet.
-  const buildFlow = (): boolean => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(jsonText);
-    } catch {
-      toast.error("That's not valid JSON.");
-      return false;
-    }
-    let block = (parsed ?? {}) as Record<string, unknown>;
-    if (Array.isArray(block.blocks)) {
-      const blocks = block.blocks as Record<string, unknown>[];
-      block = blocks[0] ?? {};
-      if (blocks.length > 1) {
-        toast.info(`Found ${blocks.length} blocks — loaded block 1 ("${String(block.title ?? "")}"). Paste each remaining block separately.`);
+    const timer = setTimeout(() => {
+      if (!jsonText.trim()) {
+        setFlowSteps(null);
+        setFlowTitle("");
+        setBlockTitles([]);
+        setSummary(null);
+        setParseError(null);
+        return;
       }
-    }
-    const titleEn = typeof block.title === "string" ? block.title.trim() : "";
-    if (!titleEn) {
-      toast.error('That JSON needs a "title" for the lesson.');
-      return false;
-    }
-    const content = Array.isArray(block.content) ? (block.content as unknown[]) : [];
-    const { steps: rawSteps, summary } = blockContentToSteps(content);
-    const steps: LessonStep[] = rawSteps.map((s) => {
-      if (s.type === "image") return { ...s, url: resolveAsset(s.url) };
-      if (s.type === "word" || s.type === "sentence") {
-        return {
-          ...s,
-          audio_url: s.audio_url ? resolveAsset(s.audio_url) : s.audio_url,
-          image_url: s.image_url ? resolveAsset(s.image_url) : s.image_url,
-        };
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(jsonText);
+      } catch (e) {
+        setParseError((e as Error).message);
+        return;
       }
-      return s;
-    });
-    setFlowTitle(titleEn);
-    setFlowSteps(steps);
-    const skippedParts = Object.entries(summary.skipped).map(([k, v]) => `${v} ${k}`);
-    toast.success(
-      `Loaded "${titleEn}" — ${summary.words} word(s), ${summary.sentences} sentence(s). Edit the flow below, then save.` +
-        (skippedParts.length ? ` Skipped: ${skippedParts.join(", ")}.` : ""),
-    );
-    return true;
-  };
+      setParseError(null);
+
+      const root = (parsed ?? {}) as Record<string, unknown>;
+      const blocks: Record<string, unknown>[] = Array.isArray(root.blocks)
+        ? (root.blocks as Record<string, unknown>[])
+        : Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>[])
+        : [root];
+      setBlockTitles(blocks.map((b, i) => (typeof b.title === "string" && b.title.trim() ? b.title.trim() : `Block ${i + 1}`)));
+      const idx = Math.min(blockIdx, blocks.length - 1);
+      const block = blocks[idx] ?? {};
+
+      const titleEn = typeof block.title === "string" ? block.title.trim() : "";
+      const content = Array.isArray(block.content) ? (block.content as unknown[]) : [];
+      const { steps: rawSteps, summary: sum } = blockContentToSteps(content);
+      const steps: LessonStep[] = rawSteps.map((s) => {
+        if (s.type === "image") return { ...s, url: resolveAsset(s.url) };
+        if (s.type === "word" || s.type === "sentence") {
+          return {
+            ...s,
+            audio_url: s.audio_url ? resolveAsset(s.audio_url) : s.audio_url,
+            image_url: s.image_url ? resolveAsset(s.image_url) : s.image_url,
+          };
+        }
+        return s;
+      });
+      setFlowTitle(titleEn);
+      setFlowSteps(steps);
+      setSummary(sum);
+    }, 250);
+    return () => clearTimeout(timer);
+    // Deliberately keyed on the JSON, the chosen block and the uploaded assets.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jsonText, blockIdx, assets]);
 
   const resetPanel = () => {
     setJsonText("");
     setAssets({});
     setFlowTitle("");
     setFlowSteps(null);
+    setBlockTitles([]);
+    setSummary(null);
+    setBlockIdx(0);
   };
 
   const runSave = async () => {
     const steps = flowSteps;
     const titleEn = flowTitle.trim();
-    if (!steps) {
-      if (!buildFlow()) return;
-      // buildFlow's state isn't visible yet in this tick — ask the admin to review first.
-      toast.info("Review the flow below, then press Save Lesson again.");
+    if (!steps || steps.length === 0) {
+      toast.error("Paste some lesson JSON first — the flow below is empty.");
       return;
     }
     if (!titleEn) {
@@ -777,10 +791,16 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
       });
 
       setAddedCount((c) => c + 1);
-      resetPanel();
+      const more = blockTitles.length > 1 && blockIdx < blockTitles.length - 1;
+      if (more) {
+        setBlockIdx((i) => i + 1);
+      } else {
+        resetPanel();
+      }
       onImported();
 
       let msg = `Saved "${titleEn}" — ${finalSteps.length} step${finalSteps.length === 1 ? "" : "s"}. Any missing translations were filled in with AI.`;
+      if (more) msg += ` Moved on to block ${blockIdx + 2} of ${blockTitles.length}.`;
       if (unresolvedAssets) msg += ` ${unresolvedAssets} image/audio reference${unresolvedAssets === 1 ? "" : "s"} isn't a real URL — upload a file with a matching name, or fix it in the flow.`;
       toast.success(msg);
     } catch (e) {
@@ -789,6 +809,8 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
       setSaving(false);
     }
   };
+
+  const skippedParts = summary ? Object.entries(summary.skipped).map(([k, v]) => `${v} ${k}`) : [];
 
   return (
     <div className="grid gap-3">
@@ -800,14 +822,22 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
         onChange={(e) => setJsonText(e.target.value)}
         placeholder={BLOCK_IMPORT_EXAMPLE}
       />
-      <div className="flex items-center gap-2 flex-wrap">
-        <Button type="button" variant="secondary" size="sm" onClick={buildFlow} disabled={!jsonText.trim()}>
-          {flowSteps ? "Rebuild flow from JSON" : "Build flow from JSON"}
-        </Button>
-        {flowSteps && (
-          <span className="text-xs text-muted-foreground">Rebuilding replaces every edit you made below.</span>
-        )}
-      </div>
+      {parseError ? (
+        <p className="text-xs text-destructive">Invalid JSON — {parseError}</p>
+      ) : (
+        <p className="text-xs text-muted-foreground">The flow below updates automatically as you paste or edit the JSON.</p>
+      )}
+
+      {blockTitles.length > 1 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground">{blockTitles.length} blocks:</span>
+          {blockTitles.map((title, i) => (
+            <Button key={i} type="button" size="sm" variant={i === blockIdx ? "secondary" : "ghost"} className="h-7 text-xs" onClick={() => setBlockIdx(i)}>
+              {i + 1}. {title}
+            </Button>
+          ))}
+        </div>
+      )}
 
       <div>
         <Label>Images &amp; audio (optional)</Label>
@@ -838,7 +868,10 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
           <div>
             <Label>Flow — step by step</Label>
             <p className="text-xs text-muted-foreground mt-0.5 mb-2">
-              Reorder, edit or delete individual steps, add a picture to any word, and fill Kurdish with AI. This is exactly what learners will walk through.
+              {summary
+                ? `${flowSteps.length} step(s) from your JSON — ${summary.words} word(s), ${summary.sentences} sentence(s)${skippedParts.length ? `, skipped ${skippedParts.join(", ")}` : ""}.`
+                : "This is exactly what learners will walk through."}{" "}
+              Reorder, edit or delete steps, add a picture to any word, and fill Kurdish with AI. Editing the JSON above rebuilds this flow.
             </p>
             <LessonStepsEditor value={flowSteps} onChange={setFlowSteps} sourceLanguage={lang} courseId={course.id} />
           </div>
@@ -847,14 +880,15 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
 
       <div className="flex items-center justify-between">
         {addedCount > 0 ? <span className="text-xs text-muted-foreground">{addedCount} lesson{addedCount === 1 ? "" : "s"} added this session</span> : <span />}
-        <Button onClick={runSave} disabled={saving || uploading || (!jsonText.trim() && !flowSteps)}>
+        <Button onClick={runSave} disabled={saving || uploading || !flowSteps || flowSteps.length === 0}>
           {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
-          Save Lesson
+          Save Lesson{blockTitles.length > 1 ? ` (block ${blockIdx + 1}/${blockTitles.length})` : ""}
         </Button>
       </div>
     </div>
   );
 }
+
 
 
 type LessonStep =
