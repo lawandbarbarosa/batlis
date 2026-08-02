@@ -41,6 +41,8 @@ import {
   translateLessonWords,
   generateWordMeaning,
   generateWordImage,
+  searchWordPhotos,
+  importPhotoToLibrary,
   transcribeBookAudio,
 } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
