@@ -748,6 +748,91 @@ export const generateWordImage = createServerFn({ method: "POST" })
     return { url: pub.publicUrl };
   });
 
+/* -------------------- REAL PHOTOS FOR WORDS (stock libraries) -------------------- */
+// AI illustrations are slow and cost credits; for concrete vocabulary a real photo
+// usually explains the word better. We search Pixabay when a PIXABAY_API_KEY is
+// configured, and otherwise fall back to Openverse (openly-licensed images, no key
+// required). Both return safe, commercially-usable images.
+type PhotoHit = { url: string; thumb: string; credit: string; source: "pixabay" | "openverse" };
+
+async function searchPixabay(query: string, key: string, perPage: number): Promise<PhotoHit[]> {
+  const u = new URL("https://pixabay.com/api/");
+  u.searchParams.set("key", key);
+  u.searchParams.set("q", query);
+  u.searchParams.set("image_type", "photo");
+  u.searchParams.set("safesearch", "true");
+  u.searchParams.set("per_page", String(Math.max(3, perPage)));
+  const res = await fetch(u.toString());
+  if (!res.ok) return [];
+  const json = (await res.json()) as { hits?: Array<{ webformatURL?: string; largeImageURL?: string; previewURL?: string; user?: string }> };
+  return (json.hits ?? [])
+    .filter((h) => h.webformatURL || h.largeImageURL)
+    .map((h) => ({
+      url: (h.largeImageURL || h.webformatURL)!,
+      thumb: h.previewURL || h.webformatURL || h.largeImageURL!,
+      credit: `Pixabay${h.user ? ` · ${h.user}` : ""}`,
+      source: "pixabay" as const,
+    }));
+}
+
+async function searchOpenverse(query: string, perPage: number): Promise<PhotoHit[]> {
+  const u = new URL("https://api.openverse.org/v1/images/");
+  u.searchParams.set("q", query);
+  u.searchParams.set("license_type", "commercial");
+  u.searchParams.set("mature", "false");
+  u.searchParams.set("page_size", String(Math.max(3, perPage)));
+  const res = await fetch(u.toString(), { headers: { Accept: "application/json" } });
+  if (!res.ok) return [];
+  const json = (await res.json()) as { results?: Array<{ url?: string; thumbnail?: string; creator?: string; source?: string }> };
+  return (json.results ?? [])
+    .filter((r) => !!r.url)
+    .map((r) => ({
+      url: r.url!,
+      thumb: r.thumbnail || r.url!,
+      credit: [r.source, r.creator].filter(Boolean).join(" · ") || "Openverse",
+      source: "openverse" as const,
+    }));
+}
+
+export const searchWordPhotos = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ query: z.string().min(1).max(200), limit: z.number().int().min(1).max(24).optional() }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context);
+    const limit = data.limit ?? 12;
+    const key = process.env.PIXABAY_API_KEY;
+    let hits: PhotoHit[] = [];
+    if (key) hits = await searchPixabay(data.query, key, limit);
+    if (hits.length === 0) hits = await searchOpenverse(data.query, limit);
+    return { hits: hits.slice(0, limit), provider: hits[0]?.source ?? (key ? "pixabay" : "openverse") };
+  });
+
+// Copy a picked stock photo into our own bucket so lessons never break when the
+// remote host changes or rate-limits hotlinking.
+export const importPhotoToLibrary = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ url: z.string().url(), word: z.string().max(200).optional(), course_id: z.string().uuid().optional() }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context);
+    const res = await fetch(data.url);
+    if (!res.ok) throw new Error(`Could not download that image [${res.status}]`);
+    const type = res.headers.get("content-type") || "image/jpeg";
+    if (!type.startsWith("image/")) throw new Error("That link is not an image.");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.byteLength > 8_000_000) throw new Error("That image is too large (max 8MB).");
+    const ext = type.includes("png") ? "png" : type.includes("webp") ? "webp" : type.includes("gif") ? "gif" : "jpg";
+    const slug = (data.word ?? "photo").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "photo";
+    const path = `${data.course_id ?? "words"}/photo-${slug}-${Date.now()}.${ext}`;
+    const { error } = await context.supabase.storage.from("lesson-assets").upload(path, bytes, { contentType: type, upsert: false });
+    if (error) throw new Error(`Could not save the image: ${error.message}`);
+    return { url: context.supabase.storage.from("lesson-assets").getPublicUrl(path).data.publicUrl };
+  });
+
+
 
 /* -------------------- SPEECH-TO-TEXT: TRANSCRIBE UPLOADED BOOK AUDIO -------------------- */
 // An admin records or finds an MP3 of the book being read aloud (e.g. one file per
