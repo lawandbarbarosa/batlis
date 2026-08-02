@@ -12,7 +12,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Loader2, ChevronUp, ChevronDown, Trash2, X, Image as ImageIcon } from "lucide-react";
+import { Sparkles, Loader2, ChevronUp, ChevronDown, Trash2, X, Image as ImageIcon, Search } from "lucide-react";
 import { toast } from "sonner";
 import { useDialect } from "@/hooks/use-dialect";
 import { cn } from "@/lib/utils";
