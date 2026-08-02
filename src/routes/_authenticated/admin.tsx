@@ -12,7 +12,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Loader2, ChevronUp, ChevronDown, Trash2, X, Image as ImageIcon } from "lucide-react";
+import { Sparkles, Loader2, ChevronUp, ChevronDown, Trash2, X, Image as ImageIcon, Search } from "lucide-react";
 import { toast } from "sonner";
 import { useDialect } from "@/hooks/use-dialect";
 import { cn } from "@/lib/utils";
@@ -41,6 +41,8 @@ import {
   translateLessonWords,
   generateWordMeaning,
   generateWordImage,
+  searchWordPhotos,
+  importPhotoToLibrary,
   transcribeBookAudio,
 } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
@@ -982,11 +984,21 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
   const steps = value ?? [];
   const translate = useServerFn(translateLessonWords);
   const makeImage = useServerFn(generateWordImage);
+  const findPhotos = useServerFn(searchWordPhotos);
+  const importPhoto = useServerFn(importPhotoToLibrary);
   const [translatingAll, setTranslatingAll] = useState(false);
   const [translatingIdx, setTranslatingIdx] = useState<number | null>(null);
   const [imagingIdx, setImagingIdx] = useState<number | null>(null);
   const [imagingAll, setImagingAll] = useState(false);
   const [mode, setMode] = useState<"builder" | "json">("builder");
+  // Stock-photo picker: real photos usually explain a concrete word better than AI art.
+  const [photoFor, setPhotoFor] = useState<number | null>(null);
+  const [photoQuery, setPhotoQuery] = useState("");
+  const [photoHits, setPhotoHits] = useState<{ url: string; thumb: string; credit: string }[]>([]);
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoPicking, setPhotoPicking] = useState<string | null>(null);
+  const [photosAll, setPhotosAll] = useState(false);
+
 
   const update = (i: number, patch: Record<string, unknown>) => {
     const next = steps.slice();
@@ -1104,6 +1116,78 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
     }
   };
 
+  // --- Stock photo search (Pixabay when a key is set, otherwise Openverse) ---
+  const runPhotoSearch = async (q: string) => {
+    if (!q.trim()) return;
+    setPhotoLoading(true);
+    try {
+      const res = await findPhotos({ data: { query: q.trim(), limit: 12 } });
+      setPhotoHits(res.hits);
+      if (res.hits.length === 0) toast.info(`No photos found for "${q}". Try a simpler word.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setPhotoLoading(false);
+    }
+  };
+
+  const openPhotoPicker = (i: number) => {
+    const s = steps[i];
+    const q = isWordOrSentence(s) ? s.target : "";
+    setPhotoFor(i);
+    setPhotoQuery(q);
+    setPhotoHits([]);
+    if (q.trim()) void runPhotoSearch(q);
+  };
+
+  const choosePhoto = async (url: string) => {
+    if (photoFor === null) return;
+    const s = steps[photoFor];
+    setPhotoPicking(url);
+    try {
+      const res = await importPhoto({ data: { url, word: isWordOrSentence(s) ? s.target : undefined, course_id: courseId } });
+      update(photoFor, { image_url: res.url });
+      setPhotoFor(null);
+      toast.success("Picture added");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setPhotoPicking(null);
+    }
+  };
+
+  const findAllMissingPhotos = async () => {
+    const targets = steps
+      .map((s, i) => ({ s, i }))
+      .filter(({ s }) => s.type === "word" && s.target.trim() && !s.image_url?.trim());
+    if (targets.length === 0) {
+      toast.info("Every word already has a picture.");
+      return;
+    }
+    setPhotosAll(true);
+    const next = steps.slice();
+    let done = 0;
+    for (const { s, i } of targets) {
+      const word = (s as { target: string }).target;
+      try {
+        const res = await findPhotos({ data: { query: word, limit: 1 } });
+        const hit = res.hits[0];
+        if (!hit) continue;
+        const saved = await importPhoto({ data: { url: hit.url, word, course_id: courseId } });
+        next[i] = { ...next[i], image_url: saved.url } as LessonStep;
+        done++;
+        onChange(next.slice());
+      } catch (e) {
+        toast.error(`${word}: ${(e as Error).message}`);
+        break;
+      }
+    }
+    setPhotosAll(false);
+    toast[done ? "success" : "info"](done ? `Added ${done} photo${done === 1 ? "" : "s"}` : "No photos found for the remaining words.");
+  };
+
+
+
   return (
     <div className="grid gap-2">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1117,9 +1201,13 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
               {translatingAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
               Translate all with AI
             </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={generateAllMissingImages} disabled={imagingAll}>
+            <Button type="button" variant="secondary" size="sm" onClick={findAllMissingPhotos} disabled={photosAll || imagingAll}>
+              {photosAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Search className="h-3 w-3 mr-1.5" />}
+              Find missing photos
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={generateAllMissingImages} disabled={imagingAll || photosAll}>
               {imagingAll ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <ImageIcon className="h-3 w-3 mr-1.5" />}
-              Generate missing pictures
+              Generate missing pictures (AI)
             </Button>
           </div>
         )}
@@ -1192,9 +1280,13 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
                   <div className="rounded-md border bg-background p-2 grid gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-medium text-muted-foreground">Picture</span>
-                      <Button type="button" size="sm" variant="outline" className="h-7" disabled={imagingIdx === i || imagingAll || !s.target.trim()} onClick={() => generateImageFor(i)}>
+                      <Button type="button" size="sm" variant="outline" className="h-7" disabled={!s.target.trim()} onClick={() => openPhotoPicker(i)}>
+                        <Search className="h-3 w-3 mr-1.5" />
+                        Find photo
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" className="h-7" disabled={imagingIdx === i || imagingAll || !s.target.trim()} onClick={() => generateImageFor(i)}>
                         {imagingIdx === i ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <ImageIcon className="h-3 w-3 mr-1.5" />}
-                        {s.image_url ? "Regenerate with AI" : "Generate with AI"}
+                        {s.image_url ? "Regenerate with AI" : "AI illustration"}
                       </Button>
                       <label className="text-xs underline cursor-pointer text-muted-foreground">
                         upload
@@ -1231,9 +1323,51 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
           </div>
         </>
       )}
+
+      <Dialog open={photoFor !== null} onOpenChange={(o) => { if (!o) setPhotoFor(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Find a picture</DialogTitle></DialogHeader>
+          <div className="flex gap-2">
+            <Input
+              dir="ltr"
+              value={photoQuery}
+              onChange={(e) => setPhotoQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void runPhotoSearch(photoQuery); } }}
+              placeholder="Search a word, e.g. apple"
+            />
+            <Button type="button" onClick={() => runPhotoSearch(photoQuery)} disabled={photoLoading || !photoQuery.trim()}>
+              {photoLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            </Button>
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[55vh] overflow-y-auto">
+            {photoHits.map((h) => (
+              <button
+                key={h.url}
+                type="button"
+                onClick={() => choosePhoto(h.url)}
+                disabled={!!photoPicking}
+                className="relative rounded-md overflow-hidden border hover:ring-2 hover:ring-primary disabled:opacity-50"
+                title={h.credit}
+              >
+                <img src={h.thumb} alt="" className="h-24 w-full object-cover" loading="lazy" />
+                {photoPicking === h.url && (
+                  <span className="absolute inset-0 grid place-items-center bg-background/70"><Loader2 className="h-4 w-4 animate-spin" /></span>
+                )}
+              </button>
+            ))}
+            {!photoLoading && photoHits.length === 0 && (
+              <p className="col-span-full text-xs text-muted-foreground py-6 text-center">Search for a word to see free, licensed photos.</p>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Free stock photos (Pixabay when a key is configured, otherwise Openverse). The chosen photo is copied into your own storage.
+          </p>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+
 
 function LessonForm({ value, onChange, lang }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void; lang: string }) {
   const set = (k: string, v: unknown) => onChange({ ...value, [k]: v });
