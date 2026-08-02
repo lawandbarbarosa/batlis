@@ -1323,9 +1323,51 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
           </div>
         </>
       )}
+
+      <Dialog open={photoFor !== null} onOpenChange={(o) => { if (!o) setPhotoFor(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Find a picture</DialogTitle></DialogHeader>
+          <div className="flex gap-2">
+            <Input
+              dir="ltr"
+              value={photoQuery}
+              onChange={(e) => setPhotoQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void runPhotoSearch(photoQuery); } }}
+              placeholder="Search a word, e.g. apple"
+            />
+            <Button type="button" onClick={() => runPhotoSearch(photoQuery)} disabled={photoLoading || !photoQuery.trim()}>
+              {photoLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            </Button>
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[55vh] overflow-y-auto">
+            {photoHits.map((h) => (
+              <button
+                key={h.url}
+                type="button"
+                onClick={() => choosePhoto(h.url)}
+                disabled={!!photoPicking}
+                className="relative rounded-md overflow-hidden border hover:ring-2 hover:ring-primary disabled:opacity-50"
+                title={h.credit}
+              >
+                <img src={h.thumb} alt="" className="h-24 w-full object-cover" loading="lazy" />
+                {photoPicking === h.url && (
+                  <span className="absolute inset-0 grid place-items-center bg-background/70"><Loader2 className="h-4 w-4 animate-spin" /></span>
+                )}
+              </button>
+            ))}
+            {!photoLoading && photoHits.length === 0 && (
+              <p className="col-span-full text-xs text-muted-foreground py-6 text-center">Search for a word to see free, licensed photos.</p>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Free stock photos (Pixabay when a key is configured, otherwise Openverse). The chosen photo is copied into your own storage.
+          </p>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+
 
 function LessonForm({ value, onChange, lang }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void; lang: string }) {
   const set = (k: string, v: unknown) => onChange({ ...value, [k]: v });
