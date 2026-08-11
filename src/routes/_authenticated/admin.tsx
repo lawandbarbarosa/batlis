@@ -295,22 +295,42 @@ function CourseJsonImportPanel({ lang, cefr, levelId, nextOrderIndex, onImported
       toast.error("That's not valid JSON.");
       return;
     }
-    const root = (parsed ?? {}) as Record<string, unknown>;
-    const courseTitleEn = typeof root.title === "string" ? root.title.trim() : "";
-    if (!courseTitleEn) {
-      toast.error('That JSON needs a top-level "title" for the course.');
-      return;
-    }
+    // Be forgiving about shape: the course object may be at the root, nested
+    // under "course"/"data", or the paste may be just an array of blocks.
+    const rootRaw = (parsed ?? {}) as Record<string, unknown>;
+    const nested = (typeof rootRaw.course === "object" && rootRaw.course ? rootRaw.course : typeof rootRaw.data === "object" && rootRaw.data ? rootRaw.data : null) as Record<string, unknown> | null;
+    const root: Record<string, unknown> = Array.isArray(parsed)
+      ? { blocks: parsed }
+      : nested && (nested.title || nested.blocks || nested.lessons)
+        ? { ...rootRaw, ...nested }
+        : rootRaw;
+
+    const pickTitle = (o: Record<string, unknown>): string => {
+      for (const k of ["title", "course_title", "courseTitle", "name", "course_name", "courseName", "title_en", "titleEn"]) {
+        const v = o[k];
+        if (typeof v === "string" && v.trim()) return v.trim();
+      }
+      return "";
+    };
 
     const blocks: Record<string, unknown>[] = Array.isArray(root.blocks)
       ? (root.blocks as Record<string, unknown>[])
-      : Array.isArray(root.content)
-        ? [root] // a single block was pasted directly — treat it as a one-lesson course
-        : [];
+      : Array.isArray(root.lessons)
+        ? (root.lessons as Record<string, unknown>[])
+        : Array.isArray(root.content)
+          ? [root] // a single block was pasted directly — treat it as a one-lesson course
+          : [];
     if (blocks.length === 0) {
       toast.error('No "blocks" found in that JSON.');
       return;
     }
+
+    const courseTitleEn = pickTitle(root) || (blocks.length === 1 ? pickTitle(blocks[0]) : "");
+    if (!courseTitleEn) {
+      toast.error('That JSON needs a course title (a top-level "title", "course_title" or "name").');
+      return;
+    }
+
 
     let levelMismatchNote = "";
     if (typeof root.level === "string" && root.level.toUpperCase() !== cefr.toUpperCase()) {
