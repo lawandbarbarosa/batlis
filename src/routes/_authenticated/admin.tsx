@@ -340,7 +340,7 @@ function CourseJsonImportPanel({ lang, cefr, levelId, nextOrderIndex, onImported
     setSaving(true);
     try {
       const blockData = blocks.map((b) => {
-        const titleEn = typeof b.title === "string" ? b.title.trim() : "";
+        const titleEn = pickTitle(b);
         const content = Array.isArray(b.content) ? (b.content as unknown[]) : [];
         const { steps: rawSteps, summary } = blockContentToSteps(content);
         const steps: LessonStep[] = rawSteps.map((s) => {
