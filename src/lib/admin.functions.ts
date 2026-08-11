@@ -837,7 +837,7 @@ async function searchWikimedia(query: string, perPage: number): Promise<PhotoHit
     };
   };
   return Object.values(json.query?.pages ?? {})
-    .map((p) => {
+    .map<PhotoHit | null>((p) => {
       const info = p.imageinfo?.[0];
       if (!info?.thumburl && !info?.url) return null;
       const artist = (info?.extmetadata?.Artist?.value ?? "").replace(/<[^>]*>/g, "").trim();
@@ -846,7 +846,7 @@ async function searchWikimedia(query: string, perPage: number): Promise<PhotoHit
         thumb: (info!.thumburl || info!.url)!,
         credit: `Wikimedia Commons${artist ? ` · ${artist}` : ""}`,
         source: "wikimedia" as const,
-      } satisfies PhotoHit;
+      };
     })
     .filter((h): h is PhotoHit => h !== null);
 }
