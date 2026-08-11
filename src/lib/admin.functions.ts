@@ -749,11 +749,49 @@ export const generateWordImage = createServerFn({ method: "POST" })
   });
 
 /* -------------------- REAL PHOTOS FOR WORDS (stock libraries) -------------------- */
-// AI illustrations are slow and cost credits; for concrete vocabulary a real photo
-// usually explains the word better. We search Pixabay when a PIXABAY_API_KEY is
-// configured, and otherwise fall back to Openverse (openly-licensed images, no key
-// required). Both return safe, commercially-usable images.
-type PhotoHit = { url: string; thumb: string; credit: string; source: "pixabay" | "openverse" };
+// Provider order: Pexels → Unsplash → Pixabay (each used only if its key exists),
+// then Wikimedia Commons and Openverse which need no key at all.
+type PhotoSource = "pexels" | "unsplash" | "pixabay" | "wikimedia" | "openverse";
+type PhotoHit = { url: string; thumb: string; credit: string; source: PhotoSource };
+
+async function searchPexels(query: string, key: string, perPage: number): Promise<PhotoHit[]> {
+  const u = new URL("https://api.pexels.com/v1/search");
+  u.searchParams.set("query", query);
+  u.searchParams.set("per_page", String(Math.max(3, perPage)));
+  const res = await fetch(u.toString(), { headers: { Authorization: key } });
+  if (!res.ok) return [];
+  const json = (await res.json()) as {
+    photos?: Array<{ src?: { large?: string; medium?: string; tiny?: string }; photographer?: string }>;
+  };
+  return (json.photos ?? [])
+    .filter((p) => p.src?.large || p.src?.medium)
+    .map((p) => ({
+      url: (p.src!.large || p.src!.medium)!,
+      thumb: p.src!.tiny || p.src!.medium || p.src!.large!,
+      credit: `Pexels${p.photographer ? ` · ${p.photographer}` : ""}`,
+      source: "pexels" as const,
+    }));
+}
+
+async function searchUnsplash(query: string, key: string, perPage: number): Promise<PhotoHit[]> {
+  const u = new URL("https://api.unsplash.com/search/photos");
+  u.searchParams.set("query", query);
+  u.searchParams.set("content_filter", "high");
+  u.searchParams.set("per_page", String(Math.max(3, perPage)));
+  const res = await fetch(u.toString(), { headers: { Authorization: `Client-ID ${key}` } });
+  if (!res.ok) return [];
+  const json = (await res.json()) as {
+    results?: Array<{ urls?: { regular?: string; small?: string; thumb?: string }; user?: { name?: string } }>;
+  };
+  return (json.results ?? [])
+    .filter((r) => r.urls?.regular || r.urls?.small)
+    .map((r) => ({
+      url: (r.urls!.regular || r.urls!.small)!,
+      thumb: r.urls!.thumb || r.urls!.small || r.urls!.regular!,
+      credit: `Unsplash${r.user?.name ? ` · ${r.user.name}` : ""}`,
+      source: "unsplash" as const,
+    }));
+}
 
 async function searchPixabay(query: string, key: string, perPage: number): Promise<PhotoHit[]> {
   const u = new URL("https://pixabay.com/api/");
@@ -773,6 +811,44 @@ async function searchPixabay(query: string, key: string, perPage: number): Promi
       credit: `Pixabay${h.user ? ` · ${h.user}` : ""}`,
       source: "pixabay" as const,
     }));
+}
+
+// Wikimedia Commons: huge, free, no API key. Great for concrete nouns.
+async function searchWikimedia(query: string, perPage: number): Promise<PhotoHit[]> {
+  const u = new URL("https://commons.wikimedia.org/w/api.php");
+  u.searchParams.set("action", "query");
+  u.searchParams.set("format", "json");
+  u.searchParams.set("origin", "*");
+  u.searchParams.set("generator", "search");
+  u.searchParams.set("gsrsearch", `filetype:bitmap ${query}`);
+  u.searchParams.set("gsrnamespace", "6");
+  u.searchParams.set("gsrlimit", String(Math.max(3, perPage)));
+  u.searchParams.set("prop", "imageinfo");
+  u.searchParams.set("iiprop", "url|extmetadata");
+  u.searchParams.set("iiurlwidth", "800");
+  const res = await fetch(u.toString(), { headers: { Accept: "application/json" } });
+  if (!res.ok) return [];
+  const json = (await res.json()) as {
+    query?: {
+      pages?: Record<string, {
+        title?: string;
+        imageinfo?: Array<{ thumburl?: string; url?: string; extmetadata?: { Artist?: { value?: string } } }>;
+      }>;
+    };
+  };
+  return Object.values(json.query?.pages ?? {})
+    .map<PhotoHit | null>((p) => {
+      const info = p.imageinfo?.[0];
+      if (!info?.thumburl && !info?.url) return null;
+      const artist = (info?.extmetadata?.Artist?.value ?? "").replace(/<[^>]*>/g, "").trim();
+      return {
+        url: (info!.thumburl || info!.url)!,
+        thumb: (info!.thumburl || info!.url)!,
+        credit: `Wikimedia Commons${artist ? ` · ${artist}` : ""}`,
+        source: "wikimedia" as const,
+      };
+    })
+    .filter((h): h is PhotoHit => h !== null);
 }
 
 async function searchOpenverse(query: string, perPage: number): Promise<PhotoHit[]> {
@@ -802,12 +878,29 @@ export const searchWordPhotos = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     await assertAdmin(context);
     const limit = data.limit ?? 12;
-    const key = process.env.PIXABAY_API_KEY;
+    const pexelsKey = process.env.PEXELS_API_KEY;
+    const unsplashKey = process.env.UNSPLASH_ACCESS_KEY;
+    const pixabayKey = process.env.PIXABAY_API_KEY;
+
+    const providers: Array<() => Promise<PhotoHit[]>> = [];
+    if (pexelsKey) providers.push(() => searchPexels(data.query, pexelsKey, limit));
+    if (unsplashKey) providers.push(() => searchUnsplash(data.query, unsplashKey, limit));
+    if (pixabayKey) providers.push(() => searchPixabay(data.query, pixabayKey, limit));
+    providers.push(() => searchWikimedia(data.query, limit));
+    providers.push(() => searchOpenverse(data.query, limit));
+
     let hits: PhotoHit[] = [];
-    if (key) hits = await searchPixabay(data.query, key, limit);
-    if (hits.length === 0) hits = await searchOpenverse(data.query, limit);
-    return { hits: hits.slice(0, limit), provider: hits[0]?.source ?? (key ? "pixabay" : "openverse") };
+    for (const run of providers) {
+      try {
+        hits = await run();
+      } catch {
+        hits = [];
+      }
+      if (hits.length > 0) break;
+    }
+    return { hits: hits.slice(0, limit), provider: hits[0]?.source ?? "wikimedia" };
   });
+
 
 // Copy a picked stock photo into our own bucket so lessons never break when the
 // remote host changes or rate-limits hotlinking.
