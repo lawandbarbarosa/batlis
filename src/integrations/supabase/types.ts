@@ -170,6 +170,7 @@ export type Database = {
       lessons: {
         Row: {
           course_id: string
+          cover_image_path: string | null
           created_at: string
           dialogue_json: Json
           grammar_md_badini: string | null
@@ -178,6 +179,7 @@ export type Database = {
           id: string
           level_id: string
           order_index: number
+          source_json: Json | null
           steps_json: Json
           summary_badini: string | null
           summary_en: string | null
@@ -188,6 +190,7 @@ export type Database = {
         }
         Insert: {
           course_id: string
+          cover_image_path?: string | null
           created_at?: string
           dialogue_json?: Json
           grammar_md_badini?: string | null
@@ -196,6 +199,7 @@ export type Database = {
           id?: string
           level_id: string
           order_index: number
+          source_json?: Json | null
           steps_json?: Json
           summary_badini?: string | null
           summary_en?: string | null
@@ -206,6 +210,7 @@ export type Database = {
         }
         Update: {
           course_id?: string
+          cover_image_path?: string | null
           created_at?: string
           dialogue_json?: Json
           grammar_md_badini?: string | null
@@ -214,6 +219,7 @@ export type Database = {
           id?: string
           level_id?: string
           order_index?: number
+          source_json?: Json | null
           steps_json?: Json
           summary_badini?: string | null
           summary_en?: string | null
