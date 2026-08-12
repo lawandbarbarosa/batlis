@@ -1036,3 +1036,48 @@ export const getElevenLabsToken = createServerFn({ method: "POST" })
     const json = (await res.json()) as { token: string };
     return { token: json.token };
   });
+
+/* -------------------- TEXT-TO-SPEECH FOR LESSON WORDS -------------------- */
+// Generates a real spoken recording (ElevenLabs) for an English word or
+// sentence in a lesson and stores it in the public lesson-assets bucket, so
+// learners hear a natural voice instead of the browser's robotic fallback.
+export const generateWordAudio = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({
+      text: z.string().min(1).max(500),
+      course_id: z.string().uuid().optional(),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context);
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey) throw new Error("ElevenLabs is not connected");
+    const voiceId = process.env.ELEVENLABS_TTS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
+
+    const res = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`,
+      {
+        method: "POST",
+        headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: data.text,
+          model_id: "eleven_multilingual_v2",
+          voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Text-to-speech failed [${res.status}]: ${body}`);
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const slug = data.text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "audio";
+    const path = `${data.course_id ?? "audio"}/tts-${slug}-${Date.now()}.mp3`;
+    const { error } = await context.supabase.storage
+      .from("lesson-assets")
+      .upload(path, bytes, { contentType: "audio/mpeg", upsert: false });
+    if (error) throw new Error(`Could not save the audio: ${error.message}`);
+    const { data: pub } = context.supabase.storage.from("lesson-assets").getPublicUrl(path);
+    return { url: pub.publicUrl };
+  });
