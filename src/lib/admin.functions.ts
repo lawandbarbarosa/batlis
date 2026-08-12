@@ -275,6 +275,10 @@ export const adminUpsertLesson = createServerFn({ method: "POST" })
       grammar_md_en: z.string().max(20000).optional(),
       dialogue_json: z.array(z.object({ speaker: z.string(), text: z.string(), translation_sorani: z.string().optional(), translation_badini: z.string().optional() })).default([]),
       steps_json: z.array(lessonStepSchema).default([]),
+      // Cover picture for the lesson card, and the raw JSON the admin pasted
+      // in the wizard so re-editing can start from the exact same source.
+      cover_image_path: z.string().max(500).nullish(),
+      source_json: z.string().max(200000).nullish(),
     }).parse(d),
   )
   .handler(async ({ context, data }) => {
