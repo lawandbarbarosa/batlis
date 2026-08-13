@@ -49,6 +49,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { BannerEditorDialog } from "@/components/banner-editor";
 import { extractPdfBook } from "@/lib/pdf-import";
 import { hashText } from "@/lib/text-audio";
+import { LessonWizard, type WizardLesson } from "@/components/lesson-wizard";
+import { type LessonStep, blankStep, blockContentToSteps, type ImportSummary, JSON_STEPS_EXAMPLE, BLOCK_IMPORT_EXAMPLE } from "@/lib/lesson-steps";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   ssr: false,
@@ -567,78 +569,70 @@ function CourseForm({ value, onChange }: { value: Record<string, unknown>; onCha
   );
 }
 
+// Lessons inside a course. Creating and editing both go through the same
+// three-step wizard (paste JSON → workflow canvas → cover & save), so editing
+// a lesson walks the exact steps it was built with, source JSON included.
 function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; title_sorani: string; level_id: string }; lang: string; onBack: () => void }) {
   const { t } = useDialect();
   const qc = useQueryClient();
   const list = useServerFn(adminListLessons);
-  const upsert = useServerFn(adminUpsertLesson);
   const del = useServerFn(adminDeleteLesson);
   const q = useQuery({ queryKey: ["admin-lessons", course.id], queryFn: () => list({ data: { courseId: course.id } }) });
-  const [editing, setEditing] = useState<null | Record<string, unknown>>(null);
-  const [open, setOpen] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [editingLesson, setEditingLesson] = useState<WizardLesson | null>(null);
 
-  const save = useMutation({
-    mutationFn: async (payload: Record<string, unknown>) => upsert({ data: payload as never }),
-    onSuccess: () => { toast.success(t("saved")); qc.invalidateQueries({ queryKey: ["admin-lessons"] }); setOpen(false); },
-    onError: (e: Error) => toast.error(e.message),
-  });
   const remove = useMutation({
     mutationFn: async (id: string) => del({ data: { id } }),
     onSuccess: () => { toast.success(t("deleted")); qc.invalidateQueries({ queryKey: ["admin-lessons"] }); },
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const lessons = q.data?.lessons ?? [];
+
   return (
     <div>
       <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground mb-3">← Back to courses</button>
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-display text-lg font-semibold">{course.title_sorani}</h3>
-        <Button onClick={() => setAddOpen(true)}>{t("add_new")}</Button>
+        <Button onClick={() => { setEditingLesson(null); setWizardOpen(true); }}>Create a new lesson</Button>
       </div>
       <div className="grid gap-3">
-        {(q.data?.lessons ?? []).length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
-        {(q.data?.lessons ?? []).map((l) => (
-          <Card key={l.id}>
-            <CardContent className="p-4 flex justify-between items-center">
-              <div>
-                <div className="font-medium">{l.order_index + 1}. {l.title_sorani}</div>
-                <div className="text-sm text-muted-foreground">{l.title_badini}</div>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => { setEditing(l as unknown as Record<string, unknown>); setOpen(true); }}>{t("edit")}</Button>
-                <Button variant="destructive" size="sm" onClick={() => { if (confirm(t("confirm_delete"))) remove.mutate(l.id); }}>{t("delete")}</Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+        {lessons.length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
+        {lessons.map((l) => {
+          const cover = (l as { cover_image_path?: string | null }).cover_image_path;
+          const coverUrl = cover ? supabase.storage.from("lesson-assets").getPublicUrl(cover).data.publicUrl : null;
+          return (
+            <Card key={l.id}>
+              <CardContent className="p-4 flex justify-between items-center gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-10 w-14 shrink-0 rounded-md overflow-hidden bg-muted grid place-items-center">
+                    {coverUrl ? <img src={coverUrl} alt="" className="h-full w-full object-cover" /> : <ImageIcon className="h-4 w-4 text-muted-foreground" />}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{l.order_index + 1}. {l.title_sorani}{l.title_en ? ` (${l.title_en})` : ""}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {l.title_badini} · {(Array.isArray(l.steps_json) ? l.steps_json.length : 0)} steps · {(l.lesson_exercises ?? []).length} exercises
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <Button variant="outline" size="sm" onClick={() => { setEditingLesson(l as unknown as WizardLesson); setWizardOpen(true); }}>{t("edit")}</Button>
+                  <Button variant="destructive" size="sm" onClick={() => { if (confirm(t("confirm_delete"))) remove.mutate(l.id); }}>{t("delete")}</Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Add Lesson</DialogTitle></DialogHeader>
-          <LessonImportPanel
-            course={course}
-            lang={lang}
-            orderStart={q.data?.lessons.length ?? 0}
-            onImported={() => qc.invalidateQueries({ queryKey: ["admin-lessons"] })}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>{t("cancel")}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{t("admin_lessons")}</DialogTitle></DialogHeader>
-          {editing && (
-            <LessonForm value={editing} onChange={setEditing} lang={lang} />
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>{t("cancel")}</Button>
-            <Button onClick={() => editing && save.mutate(editing)} disabled={save.isPending}>{t("save")}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <LessonWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        course={course}
+        lang={lang}
+        defaultOrderIndex={lessons.length}
+        lesson={editingLesson}
+        onSaved={() => qc.invalidateQueries({ queryKey: ["admin-lessons"] })}
+      />
     </div>
   );
 }
@@ -913,92 +907,6 @@ function LessonImportPanel({ course, lang, orderStart, onImported }: { course: {
 
 
 
-type LessonStep =
-  | { type: "word"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string; image_url?: string }
-  | { type: "sentence"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string; image_url?: string }
-  | { type: "image"; url: string; caption?: string }
-  | { type: "tip"; text: string };
-
-function blankStep(type: LessonStep["type"]): LessonStep {
-  if (type === "word" || type === "sentence") return { type, target: "", kurdish_sorani: "", kurdish_badini: "", audio_url: "", image_url: "" };
-  if (type === "image") return { type, url: "", caption: "" };
-  return { type, text: "" };
-}
-
-const JSON_STEPS_EXAMPLE = `[
-  { "type": "word", "target": "Hello", "kurdish_sorani": "", "kurdish_badini": "" },
-  { "type": "sentence", "target": "Hello, my name is John." },
-  { "type": "image", "url": "https://.../hello.png", "caption": "optional" },
-  { "type": "tip", "text": "optional grammar aside" }
-]`;
-
-const BLOCK_IMPORT_EXAMPLE = `{
-  "title": "Greetings",
-  "content": [
-    { "type": "word", "word": "Hello", "translation": "سڵاو", "image": "images/hello.png", "sentence": "Hello, my name is John." },
-    { "type": "word", "word": "Goodbye", "translation": "خواحافیز", "sentence": "Goodbye! See you tomorrow." }
-  ]
-}`;
-
-type ImportSummary = { words: number; sentences: number; images: number; tips: number; assetWarnings: number; skipped: Record<string, number> };
-
-// Accepts either the app's own step shape (target/kurdish_sorani/kurdish_badini/audio_url)
-// or the more natural "word bundle" shape from a hand-authored course JSON
-// (word/translation/image/audio/sentence combined on one object) and normalizes
-// either into the app's LessonStep[]. review/test/exam items aren't supported
-// yet, so they're counted and skipped rather than silently dropped.
-function blockContentToSteps(content: unknown[]): { steps: LessonStep[]; summary: ImportSummary } {
-  const steps: LessonStep[] = [];
-  const summary: ImportSummary = { words: 0, sentences: 0, images: 0, tips: 0, assetWarnings: 0, skipped: {} };
-  const asStr = (v: unknown): string => (typeof v === "string" ? v : v == null ? "" : String(v));
-  const asAsset = (v: unknown): string => {
-    const s = asStr(v);
-    if (s && !/^https?:\/\//i.test(s)) summary.assetWarnings++;
-    return s;
-  };
-
-  for (const raw of content ?? []) {
-    const item = (raw ?? {}) as Record<string, unknown>;
-    const type = typeof item.type === "string" ? item.type : undefined;
-
-    if (type === "word") {
-      steps.push({
-        type: "word",
-        target: asStr(item.word ?? item.target),
-        kurdish_sorani: asStr(item.translation ?? item.kurdish_sorani),
-        kurdish_badini: asStr(item.kurdish_badini),
-        audio_url: item.audio || item.audio_url ? asAsset(item.audio ?? item.audio_url) : "",
-        image_url: item.image || item.image_url ? asAsset(item.image ?? item.image_url) : "",
-      });
-      summary.words++;
-      if (item.image || item.image_url) summary.images++;
-      if (item.sentence) {
-        steps.push({ type: "sentence", target: asStr(item.sentence), kurdish_sorani: "", kurdish_badini: "", audio_url: "", image_url: "" });
-        summary.sentences++;
-      }
-    } else if (type === "sentence") {
-      steps.push({
-        type: "sentence",
-        target: asStr(item.target ?? item.sentence),
-        kurdish_sorani: asStr(item.kurdish_sorani ?? item.translation),
-        kurdish_badini: asStr(item.kurdish_badini),
-        audio_url: item.audio || item.audio_url ? asAsset(item.audio ?? item.audio_url) : "",
-        image_url: item.image || item.image_url ? asAsset(item.image ?? item.image_url) : "",
-      });
-      summary.sentences++;
-    } else if (type === "image") {
-      steps.push({ type: "image", url: asAsset(item.url ?? item.image), caption: asStr(item.caption) });
-      summary.images++;
-    } else if (type === "tip") {
-      steps.push({ type: "tip", text: asStr(item.text) });
-      summary.tips++;
-    } else {
-      const key = type ?? "unknown";
-      summary.skipped[key] = (summary.skipped[key] ?? 0) + 1;
-    }
-  }
-  return { steps, summary };
-}
 
 function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { value: LessonStep[]; onChange: (v: LessonStep[]) => void; sourceLanguage: string; courseId?: string }) {
   const steps = value ?? [];

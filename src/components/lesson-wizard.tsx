@@ -175,11 +175,11 @@ export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderInd
     for (const { s, i } of targets) {
       const word = (s as { target: string }).target;
       try {
-        const res = await searchPhotos({ data: { query: word, perPage: 1 } });
-        const hit = res.results?.[0];
+        const res = await searchPhotos({ data: { query: word, limit: 1 } });
+        const hit = res.hits?.[0];
         if (hit) {
           const saved = await importPhoto({ data: { url: hit.url, word, course_id: course.id } });
-          next[i] = { ...(next[i] as LessonStep & { image_url?: string }), image_url: saved.url };
+          next[i] = { ...(next[i] as Extract<LessonStep, { type: "word" }>), image_url: saved.url };
         }
       } catch {
         /* keep going — a missing picture shouldn't stop the batch */
@@ -201,8 +201,8 @@ export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderInd
       let ba = titleBadini;
       if (!so.trim() || !ba.trim()) {
         try {
-          const r = await translate({ data: { language: lang as never, items: [{ index: 0, text: titleEn || "Lesson" }] } });
-          const first = r.results?.[0];
+          const r = await translate({ data: { source_language: lang as never, items: [{ text: titleEn || "Lesson" }] } });
+          const first = r.translations?.[0];
           if (first) { so = so || first.sorani; ba = ba || first.badini; }
         } catch { /* fall back to the English title */ }
       }
@@ -440,8 +440,6 @@ function nodeMeta(kind: "word" | "sentence" | "image" | "tip" | "exercise") {
   }
 }
 
-type ServerFnCall<T> = (args: { data: T }) => Promise<never>;
-
 function WorkflowCanvas(props: {
   steps: LessonStep[];
   setSteps: (s: LessonStep[]) => void;
@@ -627,8 +625,8 @@ function StepInspector(props: {
   const runSearch = async (q: string) => {
     setSearching(true);
     try {
-      const res = await props.searchPhotos({ data: { query: q, perPage: 12 } });
-      setHits(res.results ?? []);
+      const res = await props.searchPhotos({ data: { query: q, limit: 12 } });
+      setHits(res.hits ?? []);
     } catch (e) { toast.error((e as Error).message); }
     finally { setSearching(false); }
   };
@@ -679,8 +677,8 @@ function StepInspector(props: {
             onClick={async () => {
               setLocal("tr");
               try {
-                const r = await props.translate({ data: { language: props.lang as never, items: [{ index: 0, text: step.target }] } });
-                const f = r.results?.[0];
+                const r = await props.translate({ data: { source_language: props.lang as never, items: [{ text: step.target }] } });
+                const f = r.translations?.[0];
                 if (f) onChange({ kurdish_sorani: f.sorani, kurdish_badini: f.badini });
               } catch (e) { toast.error((e as Error).message); }
               finally { setLocal(null); }
