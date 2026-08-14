@@ -306,6 +306,24 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
 
   const lessons = q.data?.lessons ?? [];
 
+  if (wizardOpen) {
+    return (
+      <div>
+        <button onClick={() => setWizardOpen(false)} className="text-sm text-muted-foreground hover:text-foreground mb-3">← Back to lessons</button>
+        <LessonWizard
+          inline
+          open
+          onOpenChange={setWizardOpen}
+          course={course}
+          lang={lang}
+          defaultOrderIndex={lessons.length}
+          lesson={editingLesson}
+          onSaved={() => qc.invalidateQueries({ queryKey: ["admin-lessons"] })}
+        />
+      </div>
+    );
+  }
+
   return (
     <div>
       <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground mb-3">← Back to courses</button>
@@ -313,6 +331,7 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
         <h3 className="font-display text-lg font-semibold">{course.title_sorani}</h3>
         <Button onClick={() => { setEditingLesson(null); setWizardOpen(true); }}>Create a new lesson</Button>
       </div>
+
       <div className="grid gap-3">
         {lessons.length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
         {lessons.map((l) => {
@@ -341,15 +360,6 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
           );
         })}
       </div>
-      <LessonWizard
-        open={wizardOpen}
-        onOpenChange={setWizardOpen}
-        course={course}
-        lang={lang}
-        defaultOrderIndex={lessons.length}
-        lesson={editingLesson}
-        onSaved={() => qc.invalidateQueries({ queryKey: ["admin-lessons"] })}
-      />
     </div>
   );
 }

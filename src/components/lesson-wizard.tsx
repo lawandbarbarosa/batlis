@@ -53,7 +53,7 @@ type Node = { kind: "step"; index: number } | { kind: "exercise"; index: number 
 
 const STEP_LABELS = ["Paste JSON", "Workflow", "Cover & save"];
 
-export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderIndex, lesson, onSaved }: {
+export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderIndex, lesson, onSaved, inline = false }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   course: { id: string; level_id: string };
@@ -61,7 +61,9 @@ export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderInd
   defaultOrderIndex: number;
   lesson?: WizardLesson | null;
   onSaved: () => void;
+  inline?: boolean;
 }) {
+
   const [stage, setStage] = useState(0);
   const [jsonText, setJsonText] = useState("");
   const [steps, setSteps] = useState<LessonStep[]>([]);
@@ -271,11 +273,12 @@ export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderInd
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[min(1200px,95vw)] h-[92vh] p-0 flex flex-col overflow-hidden">
-        <DialogHeader className="px-6 pt-5 pb-3 border-b">
-          <DialogTitle className="flex items-center gap-3">
+  const body = (
+    <>
+        <div className={cn("px-6 pt-5 pb-3 border-b", inline && "px-0 pt-0")}>
+          <div className="flex items-center gap-3 text-lg font-semibold">
+
+
             {lesson?.id ? "Edit lesson" : "Create a new lesson"}
             <span className="flex items-center gap-1.5">
               {STEP_LABELS.map((label, i) => (
@@ -292,8 +295,9 @@ export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderInd
                 </button>
               ))}
             </span>
-          </DialogTitle>
-        </DialogHeader>
+          </div>
+        </div>
+
 
         <div className="flex-1 min-h-0 overflow-hidden">
           {stage === 0 && (
@@ -419,9 +423,21 @@ export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderInd
             </Button>
           )}
         </div>
+    </>
+  );
+
+  if (inline) {
+    return <div className="flex flex-col h-[calc(100vh-14rem)] min-h-[600px] rounded-xl border bg-card overflow-hidden">{body}</div>;
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[min(1200px,95vw)] h-[92vh] p-0 flex flex-col overflow-hidden">
+        {body}
       </DialogContent>
     </Dialog>
   );
+
 }
 
 /* =================== n8n-style workflow canvas =================== */
