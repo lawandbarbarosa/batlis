@@ -271,11 +271,11 @@ export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderInd
     }
   };
 
-  return (
   const body = (
     <>
         <div className={cn("px-6 pt-5 pb-3 border-b", inline && "px-0 pt-0")}>
           <div className="flex items-center gap-3 text-lg font-semibold">
+
 
             {lesson?.id ? "Edit lesson" : "Create a new lesson"}
             <span className="flex items-center gap-1.5">
