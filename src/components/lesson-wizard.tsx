@@ -272,10 +272,11 @@ export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderInd
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[min(1200px,95vw)] h-[92vh] p-0 flex flex-col overflow-hidden">
-        <DialogHeader className="px-6 pt-5 pb-3 border-b">
-          <DialogTitle className="flex items-center gap-3">
+  const body = (
+    <>
+        <div className={cn("px-6 pt-5 pb-3 border-b", inline && "px-0 pt-0")}>
+          <div className="flex items-center gap-3 text-lg font-semibold">
+
             {lesson?.id ? "Edit lesson" : "Create a new lesson"}
             <span className="flex items-center gap-1.5">
               {STEP_LABELS.map((label, i) => (
