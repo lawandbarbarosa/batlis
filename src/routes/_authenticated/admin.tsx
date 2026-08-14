@@ -167,7 +167,7 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
 
   return (
     <div>
-      <p className="text-sm text-muted-foreground mb-3">Themed units within {cefr} — e.g. "Greetings and Introductions", "Personal Information". Click a course to manage its lessons.</p>
+      <p className="text-sm text-muted-foreground mb-3">Themed units within {cefr} — e.g. "Greetings and Introductions", "Personal Information". Click a course to open it, then build each lesson with the three-step builder: paste the lesson JSON (pictures fetched automatically), rework it on the workflow canvas, add a cover and save.</p>
       <div className="flex justify-end mb-4"><Button variant="outline" onClick={openNew}>{t("add_new")}</Button></div>
       <div className="grid gap-3">
         {(q.data?.courses ?? []).length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
