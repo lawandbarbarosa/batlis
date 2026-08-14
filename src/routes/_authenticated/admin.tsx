@@ -360,15 +360,6 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
           );
         })}
       </div>
-      <LessonWizard
-        open={wizardOpen}
-        onOpenChange={setWizardOpen}
-        course={course}
-        lang={lang}
-        defaultOrderIndex={lessons.length}
-        lesson={editingLesson}
-        onSaved={() => qc.invalidateQueries({ queryKey: ["admin-lessons"] })}
-      />
     </div>
   );
 }
