@@ -421,9 +421,21 @@ export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderInd
             </Button>
           )}
         </div>
+    </>
+  );
+
+  if (inline) {
+    return <div className="flex flex-col h-[calc(100vh-14rem)] min-h-[600px] rounded-xl border bg-card overflow-hidden">{body}</div>;
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[min(1200px,95vw)] h-[92vh] p-0 flex flex-col overflow-hidden">
+        {body}
       </DialogContent>
     </Dialog>
   );
+
 }
 
 /* =================== n8n-style workflow canvas =================== */
