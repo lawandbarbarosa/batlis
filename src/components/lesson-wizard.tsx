@@ -53,7 +53,7 @@ type Node = { kind: "step"; index: number } | { kind: "exercise"; index: number 
 
 const STEP_LABELS = ["Paste JSON", "Workflow", "Cover & save"];
 
-export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderIndex, lesson, onSaved }: {
+export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderIndex, lesson, onSaved, inline = false }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   course: { id: string; level_id: string };
@@ -61,7 +61,9 @@ export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderInd
   defaultOrderIndex: number;
   lesson?: WizardLesson | null;
   onSaved: () => void;
+  inline?: boolean;
 }) {
+
   const [stage, setStage] = useState(0);
   const [jsonText, setJsonText] = useState("");
   const [steps, setSteps] = useState<LessonStep[]>([]);
