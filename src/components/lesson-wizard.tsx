@@ -293,8 +293,9 @@ export function LessonWizard({ open, onOpenChange, course, lang, defaultOrderInd
                 </button>
               ))}
             </span>
-          </DialogTitle>
-        </DialogHeader>
+          </div>
+        </div>
+
 
         <div className="flex-1 min-h-0 overflow-hidden">
           {stage === 0 && (
