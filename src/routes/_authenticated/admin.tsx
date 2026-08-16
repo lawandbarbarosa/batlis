@@ -141,6 +141,7 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
   const q = useQuery({ queryKey: ["admin-courses", lang, cefr], queryFn: () => list({ data: { language: lang as never, cefr: cefr as never } }) });
   const [editing, setEditing] = useState<null | Record<string, unknown>>(null);
   const [open, setOpen] = useState(false);
+  const [lessonWizardOpen, setLessonWizardOpen] = useState(false);
 
   const save = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => upsert({ data: payload as never }),
@@ -165,10 +166,45 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
     setOpen(true);
   };
 
+  const openNewLesson = () => {
+    if ((q.data?.courses ?? []).length === 0) { toast.error("Add a course first — then you can add lessons to it."); return; }
+    setLessonWizardOpen(true);
+  };
+
+  // "Add new lesson" is the front-door entry point for lesson creation: no
+  // need to click into a course first, the wizard itself asks which course
+  // this lesson belongs to as its very first step.
+  if (lessonWizardOpen) {
+    return (
+      <div>
+        <button onClick={() => setLessonWizardOpen(false)} className="text-sm text-muted-foreground hover:text-foreground mb-3">← Back to lessons</button>
+        <LessonWizard
+          inline
+          open
+          onOpenChange={setLessonWizardOpen}
+          course={null}
+          courses={(q.data?.courses ?? []) as never}
+          lang={lang}
+          defaultOrderIndex={0}
+          lesson={null}
+          onSaved={(courseId) => {
+            qc.invalidateQueries({ queryKey: ["admin-courses"] });
+            qc.invalidateQueries({ queryKey: ["admin-lessons", courseId] });
+            const target = (q.data?.courses ?? []).find((c) => c.id === courseId);
+            if (target) onOpenCourse({ id: target.id, title_sorani: target.title_sorani, level_id: target.level_id });
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div>
-      <p className="text-sm text-muted-foreground mb-3">Themed units within {cefr} — e.g. "Greetings and Introductions", "Personal Information". Click a course to open it, then build each lesson with the three-step builder: paste the lesson JSON (pictures fetched automatically), rework it on the workflow canvas, add a cover and save.</p>
-      <div className="flex justify-end mb-4"><Button variant="outline" onClick={openNew}>{t("add_new")}</Button></div>
+      <p className="text-sm text-muted-foreground mb-3">Themed units within {cefr} — e.g. "Greetings and Introductions", "Personal Information". Add a lesson straight away with the button below (you'll pick its course as step 1), or click a course to manage its lessons individually.</p>
+      <div className="flex justify-end gap-2 mb-4">
+        <Button onClick={openNewLesson}>+ Add new lesson</Button>
+        <Button variant="outline" onClick={openNew}>{t("add_new")}</Button>
+      </div>
       <div className="grid gap-3">
         {(q.data?.courses ?? []).length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
         {(q.data?.courses ?? []).map((c) => {
@@ -318,7 +354,10 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
           lang={lang}
           defaultOrderIndex={lessons.length}
           lesson={editingLesson}
-          onSaved={() => qc.invalidateQueries({ queryKey: ["admin-lessons"] })}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["admin-lessons"] });
+            qc.invalidateQueries({ queryKey: ["admin-courses"] });
+          }}
         />
       </div>
     );
