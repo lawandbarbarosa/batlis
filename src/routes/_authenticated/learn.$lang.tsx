@@ -26,6 +26,9 @@ interface CourseCard {
   coverImageUrl: string | null;
   totalLessons: number;
   completedLessons: number;
+  soloLessonId: string | null;
+  soloPassed: boolean;
+  soloScore: number;
 }
 
 interface LevelGroup {
@@ -136,6 +139,7 @@ function CourseCardItem({ course, cefr, dialect, t, disabled }: {
     ? (course.description_en ?? course.description_sorani)
     : course.description_sorani;
   const complete = course.totalLessons > 0 && course.completedLessons === course.totalLessons;
+  const isSolo = !!course.soloLessonId;
 
   const inner = (
     <div className={`bento-card overflow-hidden ${disabled ? "opacity-50" : "hover:scale-[1.01] transition-transform"}`}>
@@ -158,12 +162,22 @@ function CourseCardItem({ course, cefr, dialect, t, disabled }: {
       <div className="p-4">
         <div className="font-display font-semibold">{title}</div>
         {description && <div className="text-sm text-muted-foreground mt-0.5 line-clamp-2">{description}</div>}
-        <div className="text-xs text-muted-foreground mt-2">
-          {course.completedLessons}/{course.totalLessons} {t("lessons" as never)}
-        </div>
+        {isSolo ? (
+          course.soloPassed && <div className="text-xs text-success-ink mt-2">{course.soloScore}%</div>
+        ) : (
+          <div className="text-xs text-muted-foreground mt-2">
+            {course.completedLessons}/{course.totalLessons} {t("lessons" as never)}
+          </div>
+        )}
       </div>
     </div>
   );
 
-  return disabled ? inner : <Link to="/course/$id" params={{ id: course.id }}>{inner}</Link>;
+  if (disabled) return inner;
+  // A course that wraps just one lesson is, for the learner, that lesson —
+  // tapping it should start the lesson immediately, not open a course page
+  // that only shows the one thing they just tapped.
+  return course.soloLessonId
+    ? <Link to="/lesson/$id" params={{ id: course.soloLessonId }}>{inner}</Link>
+    : <Link to="/course/$id" params={{ id: course.id }}>{inner}</Link>;
 }
