@@ -1,16 +1,20 @@
 // Three-step lesson builder used from Admin → Lessons.
-//   1. Details — pick the course (unless it's already locked in) and name
-//      the lesson. Nothing technical here, just what the learner will see.
+//   1. Details — just name the lesson. Nothing about "courses" is asked
+//      here: saving auto-creates a 1:1 course behind the scenes to hold it
+//      (that's the thing the learner-facing card actually shows/opens), so
+//      a lesson is a fully standalone thing to the admin.
 //   2. Build the lesson on an n8n-style workflow canvas — every node is one
 //      step the learner will see; click a node to edit it in the side panel.
 //      A JSON blob can optionally be imported here to fast-forward, but it's
 //      never required — words/sentences/pictures/tips can all be added by
 //      hand from the toolbar.
-//   3. Add a cover image and save — the lesson then shows up in its course's
-//      lesson list immediately.
+//   3. Add a cover image and save — the lesson (and its standalone course
+//      card) is playable immediately.
 // Editing an existing lesson re-opens the very same steps, pre-filled with
 // whatever was saved (plus the JSON it was originally imported from, if
-// any), so nothing has to be rebuilt from scratch.
+// any), so nothing has to be rebuilt from scratch. Pass `course` (plus
+// `syncCourseCard`) only when a lesson already lives inside a real,
+// hand-grouped multi-lesson course and should stay there.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -28,9 +32,10 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { type LessonStep, blankStep, parseLessonJson, JSON_STEPS_EXAMPLE } from "@/lib/lesson-steps";
 import {
-  adminUpsertLesson, adminUpsertExercise, adminDeleteExercise,
+  adminUpsertLesson, adminUpsertExercise, adminDeleteExercise, adminUpsertCourse,
   translateLessonWords, searchWordPhotos, importPhotoToLibrary, generateWordImage, generateWordAudio,
 } from "@/lib/admin.functions";
+import { BannerEditorDialog } from "@/components/banner-editor";
 
 export type WizardExercise = {
   id?: string;
@@ -54,38 +59,38 @@ export type WizardLesson = {
   lesson_exercises?: Array<{ id: string; type: string; order_index: number; prompt_json: unknown; answer_json: unknown }>;
 };
 
-// A course the admin can pick for a new lesson when one isn't already
-// locked in (see the `course` vs `courses` props below).
-export type WizardCourseOption = {
-  id: string;
-  level_id: string;
-  title_sorani: string;
-  title_badini?: string | null;
-  title_en?: string | null;
-  lessons?: Array<{ id: string }> | null;
-};
+// A course a lesson can be locked into — only relevant for lessons that
+// live inside a real, hand-grouped multi-lesson course (see `course` below).
+export type WizardCourse = { id: string; level_id: string; order_index: number; title_sorani?: string };
 
 type Node = { kind: "step"; index: number } | { kind: "exercise"; index: number };
 
 const STEP_LABELS = ["Details", "Build lesson", "Cover & save"];
 
-export function LessonWizard({ open, onOpenChange, course, courses, lang, defaultOrderIndex, lesson, onSaved, inline = false }: {
+export function LessonWizard({ open, onOpenChange, course, syncCourseCard = false, levelId, lang, defaultOrderIndex, lesson, onSaved, inline = false }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  // Pass a specific course to lock the lesson to it (e.g. opened from
-  // inside that course's own lesson list). Pass `null`/`undefined` together
-  // with `courses` to let the admin choose the course as step 1 instead.
-  course?: { id: string; level_id: string; title_sorani?: string } | null;
-  courses?: WizardCourseOption[];
+  // Lock the lesson into an existing course (e.g. a legacy multi-lesson
+  // course opened from inside its own lesson list). Leave this out for a
+  // brand-new standalone lesson — a matching 1:1 course is auto-created on
+  // save, so there's nothing to pick.
+  course?: WizardCourse | null;
+  // Only meaningful together with `course`: also keep that course's title
+  // and cover synced to this lesson on save. Only pass this when `course`
+  // truly wraps just this one lesson — never for a real multi-lesson course,
+  // or every sibling lesson's card would get relabeled.
+  syncCourseCard?: boolean;
+  // The level (CEFR) a brand-new standalone course should be created under.
+  // Ignored when `course` is set.
+  levelId: string;
   lang: string;
   defaultOrderIndex: number;
   lesson?: WizardLesson | null;
-  onSaved: (courseId: string) => void;
+  onSaved: (course: { id: string; level_id: string; order_index: number; title_sorani: string }) => void;
   inline?: boolean;
 }) {
 
   const [stage, setStage] = useState(0);
-  const [courseId, setCourseId] = useState("");
   const [jsonText, setJsonText] = useState("");
   const [jsonDialogOpen, setJsonDialogOpen] = useState(false);
   const [steps, setSteps] = useState<LessonStep[]>([]);
@@ -95,15 +100,13 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
   const [titleSorani, setTitleSorani] = useState("");
   const [titleBadini, setTitleBadini] = useState("");
   const [coverPath, setCoverPath] = useState<string>("");
+  const [coverEditor, setCoverEditor] = useState<{ url: string; crossOrigin: boolean; revoke: boolean } | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Locked in from the caller (opened from inside a specific course's
-  // lesson list) vs. left for the admin to pick in step 1.
-  const locked = !!course;
-
   const upsertLesson = useServerFn(adminUpsertLesson);
+  const upsertCourse = useServerFn(adminUpsertCourse);
   const upsertExercise = useServerFn(adminUpsertExercise);
   const deleteExercise = useServerFn(adminDeleteExercise);
   const translate = useServerFn(translateLessonWords);
@@ -118,8 +121,8 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
     setStage(0);
     setParseError(null);
     setJsonDialogOpen(false);
+    setCoverEditor(null);
     setRemovedExerciseIds([]);
-    setCourseId(course?.id ?? "");
     if (lesson) {
       setJsonText(typeof lesson.source_json === "string" ? lesson.source_json : JSON.stringify(lesson.steps_json ?? [], null, 2));
       setSteps(Array.isArray(lesson.steps_json) ? (lesson.steps_json as LessonStep[]) : []);
@@ -157,7 +160,7 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, lesson?.id]);
 
-  const coverUrl = coverPath ? supabase.storage.from("lesson-assets").getPublicUrl(coverPath).data.publicUrl : "";
+  const coverUrl = coverPath ? supabase.storage.from("course-covers").getPublicUrl(coverPath).data.publicUrl : "";
 
   /* -------- optional JSON import, used from inside the Build stage -------- */
   // Purely additive: parsed steps are appended to whatever's already on the
@@ -201,7 +204,7 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
         const res = await searchPhotos({ data: { query: word, limit: 1 } });
         const hit = res.hits?.[0];
         if (hit) {
-          const saved = await importPhoto({ data: { url: hit.url, word, course_id: courseId } });
+          const saved = await importPhoto({ data: { url: hit.url, word, course_id: course?.id } });
           next[i] = { ...(next[i] as Extract<LessonStep, { type: "word" }>), image_url: saved.url };
         }
       } catch {
@@ -216,17 +219,8 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
   };
 
   /* ---------------- step 3: save ---------------- */
-  // Prefer the locked-in course's level, otherwise look it up from the
-  // picker options the admin chose from.
-  const levelId = locked ? course!.level_id : courses?.find((c) => c.id === courseId)?.level_id;
-  const orderIndex = lesson?.order_index
-    ?? (locked ? undefined : courses?.find((c) => c.id === courseId)?.lessons?.length)
-    ?? defaultOrderIndex;
-
   const save = async () => {
-    if (!courseId) { toast.error("Choose a course for this lesson first."); return; }
-    if (!titleEn.trim() && !titleSorani.trim()) { toast.error("Give the lesson a title first."); return; }
-    if (!levelId) { toast.error("Couldn't find the level for that course — try reopening the wizard."); return; }
+    if (!titleEn.trim() && !titleSorani.trim()) { toast.error("Give the lesson a name first."); return; }
     setSaving(true);
     try {
       let so = titleSorani;
@@ -241,12 +235,49 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
       so = so || titleEn || "Lesson";
       ba = ba || so;
 
+      // A lesson always needs a course_id (that's also what the learner's
+      // lesson card actually reads its title/cover from), but the admin
+      // never picks one: locked-in courses are reused as-is, and a brand
+      // new standalone lesson gets its own 1:1 course created right here.
+      let targetCourseId: string;
+      let targetLevelId: string;
+      if (course) {
+        targetCourseId = course.id;
+        targetLevelId = course.level_id;
+        if (syncCourseCard) {
+          await upsertCourse({
+            data: {
+              id: course.id,
+              level_id: course.level_id,
+              order_index: course.order_index,
+              title_sorani: so,
+              title_badini: ba,
+              title_en: titleEn || undefined,
+              cover_image_path: coverPath || null,
+            } as never,
+          });
+        }
+      } else {
+        const savedCourse = await upsertCourse({
+          data: {
+            level_id: levelId,
+            order_index: 0,
+            title_sorani: so,
+            title_badini: ba,
+            title_en: titleEn || undefined,
+            cover_image_path: coverPath || null,
+          } as never,
+        });
+        targetCourseId = (savedCourse.course as { id: string }).id;
+        targetLevelId = levelId;
+      }
+
       const saved = await upsertLesson({
         data: {
           ...(lesson?.id ? { id: lesson.id } : {}),
-          level_id: levelId,
-          course_id: courseId,
-          order_index: orderIndex,
+          level_id: targetLevelId,
+          course_id: targetCourseId,
+          order_index: lesson?.order_index ?? defaultOrderIndex,
           title_en: titleEn || undefined,
           title_sorani: so,
           title_badini: ba,
@@ -280,7 +311,7 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
         });
       }
       toast.success(lesson?.id ? "Lesson updated" : "Lesson created");
-      onSaved(courseId);
+      onSaved({ id: targetCourseId, level_id: targetLevelId, order_index: course?.order_index ?? 0, title_sorani: so });
       onOpenChange(false);
     } catch (e) {
       toast.error((e as Error).message);
@@ -289,11 +320,14 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
     }
   };
 
-  const uploadCover = async (file: File) => {
+  // Covers live in the "course-covers" bucket and go through the same crop
+  // editor as a course cover, since that's exactly what this becomes — the
+  // picture shown on the card the learner taps.
+  const uploadCover = async (blob: Blob) => {
     setBusy("Uploading cover");
     try {
-      const path = `covers/${courseId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
-      const { error } = await supabase.storage.from("lesson-assets").upload(path, file, { upsert: false });
+      const path = `${crypto.randomUUID()}.jpg`;
+      const { error } = await supabase.storage.from("course-covers").upload(path, blob, { upsert: false, contentType: blob.type || "image/jpeg" });
       if (error) throw new Error(error.message);
       setCoverPath(path);
     } catch (e) {
@@ -302,6 +336,9 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
       setBusy(null);
     }
   };
+  const openCoverEditorForFile = (file: File) => setCoverEditor({ url: URL.createObjectURL(file), crossOrigin: false, revoke: true });
+  const openCoverEditorForCurrent = () => { if (coverUrl) setCoverEditor({ url: coverUrl, crossOrigin: true, revoke: false }); };
+  const closeCoverEditor = () => { if (coverEditor?.revoke) URL.revokeObjectURL(coverEditor.url); setCoverEditor(null); };
 
   const body = (
     <>
@@ -332,25 +369,10 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
         <div className="flex-1 min-h-0 overflow-hidden">
           {stage === 0 && (
             <div className="h-full overflow-y-auto p-6 max-w-2xl mx-auto space-y-5">
-              {locked ? (
+              {course && (
                 <p className="text-sm text-muted-foreground">
-                  Adding this lesson to <span className="font-medium text-foreground">{course?.title_sorani ?? "this course"}</span>.
+                  Adding this lesson to <span className="font-medium text-foreground">{course.title_sorani ?? "this course"}</span>.
                 </p>
-              ) : (
-                <div>
-                  <Label>Course</Label>
-                  <Select value={courseId} onValueChange={setCourseId}>
-                    <SelectTrigger><SelectValue placeholder="Choose a course…" /></SelectTrigger>
-                    <SelectContent>
-                      {(courses ?? []).map((c) => (
-                        <SelectItem key={c.id} value={c.id}>{c.title_sorani}{c.title_en ? ` (${c.title_en})` : ""}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {(courses ?? []).length === 0 && (
-                    <p className="text-xs text-muted-foreground mt-1.5">No courses yet for this language and level — add one first, then come back to add lessons to it.</p>
-                  )}
-                </div>
               )}
               <div className="grid gap-3">
                 <div><Label>Lesson name (English)</Label><Input dir="ltr" value={titleEn} onChange={(e) => setTitleEn(e.target.value)} placeholder="e.g. Greetings and Introductions" /></div>
@@ -358,7 +380,7 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
                 <div><Label>Name (Badini)</Label><Input dir="rtl" value={titleBadini} onChange={(e) => setTitleBadini(e.target.value)} placeholder="Left empty → translated automatically" /></div>
               </div>
               <p className="text-sm text-muted-foreground">
-                Next you'll build the lesson itself — add words, sentences, pictures and tips on the canvas (or import a batch from JSON in one go), then finish with a cover image.
+                Next you'll build the lesson itself — add words, sentences, pictures and tips on the canvas (or import a batch from JSON in one go), then finish with a cover image{course ? "" : " — no course to set up, this lesson stands on its own"}.
               </p>
             </div>
           )}
@@ -388,7 +410,7 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
                   exercises={exercises}
                   setExercises={setExercises}
                   onRemoveExercise={(id) => id && setRemovedExerciseIds((r) => [...r, id])}
-                  courseId={courseId}
+                  courseId={course?.id}
                   lang={lang}
                   busy={busy}
                   setBusy={setBusy}
@@ -408,25 +430,46 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
                 <span className="font-medium text-foreground">{titleEn || titleSorani || "Untitled lesson"}</span> · {steps.length} step{steps.length === 1 ? "" : "s"} · {exercises.length} exercise{exercises.length === 1 ? "" : "s"}
               </p>
               <div>
-                <Label>Lesson cover image</Label>
+                <Label>Cover image</Label>
                 <div className="mt-2 flex items-center gap-4">
                   <div className="h-28 w-44 rounded-xl overflow-hidden bg-muted grid place-items-center shrink-0">
                     {coverUrl ? <img src={coverUrl} alt="" className="h-full w-full object-cover" /> : <ImageIcon className="h-6 w-6 text-muted-foreground" />}
                   </div>
                   <div className="flex flex-col gap-2">
                     <label className="inline-flex">
-                      <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadCover(f); e.currentTarget.value = ""; }} />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={!!busy}
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) openCoverEditorForFile(f); e.currentTarget.value = ""; }}
+                      />
                       <span className={cn("inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer hover:bg-muted", busy && "opacity-60 pointer-events-none")}>
-                        {busy === "Uploading cover" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Upload image
+                        {busy === "Uploading cover" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {coverPath ? "Replace image" : "Upload image"}
                       </span>
                     </label>
-                    {coverPath && <Button variant="ghost" size="sm" onClick={() => setCoverPath("")}><X className="h-4 w-4 mr-1" /> Remove</Button>}
+                    {coverPath && (
+                      <>
+                        <Button type="button" variant="outline" size="sm" disabled={!!busy} onClick={openCoverEditorForCurrent}>Adjust crop</Button>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setCoverPath("")}><X className="h-4 w-4 mr-1" /> Remove</Button>
+                      </>
+                    )}
                   </div>
                 </div>
+                <p className="text-xs text-muted-foreground mt-2">This is the picture learners see on the lesson's card — you'll be able to pan &amp; zoom it before it uploads.</p>
               </div>
             </div>
           )}
         </div>
+
+        {coverEditor && (
+          <BannerEditorDialog
+            imageUrl={coverEditor.url}
+            crossOrigin={coverEditor.crossOrigin}
+            onCancel={closeCoverEditor}
+            onSave={(blob) => { closeCoverEditor(); uploadCover(blob); }}
+          />
+        )}
 
         <Dialog open={jsonDialogOpen} onOpenChange={setJsonDialogOpen}>
           <DialogContent className="max-w-2xl">
@@ -460,9 +503,9 @@ export function LessonWizard({ open, onOpenChange, course, courses, lang, defaul
             <Button
               disabled={!!busy}
               onClick={() => {
-                if (stage === 0) {
-                  if (!locked && !courseId) { toast.error("Choose a course for this lesson first."); return; }
-                  if (!titleEn.trim() && !titleSorani.trim()) { toast.error("Give the lesson a name first."); return; }
+                if (stage === 0 && !titleEn.trim() && !titleSorani.trim()) {
+                  toast.error("Give the lesson a name first.");
+                  return;
                 }
                 setStage(stage + 1);
               }}
@@ -515,7 +558,7 @@ function WorkflowCanvas(props: {
   exercises: WizardExercise[];
   setExercises: (e: WizardExercise[]) => void;
   onRemoveExercise: (id?: string) => void;
-  courseId: string;
+  courseId?: string;
   lang: string;
   busy: string | null;
   setBusy: (v: string | null) => void;
@@ -670,7 +713,7 @@ function StepInspector(props: {
   step: LessonStep;
   index: number;
   total: number;
-  courseId: string;
+  courseId?: string;
   lang: string;
   busy: string | null;
   setBusy: (v: string | null) => void;
