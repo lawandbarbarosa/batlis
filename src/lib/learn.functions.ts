@@ -225,9 +225,10 @@ export const getCourses = createServerFn({ method: "POST" })
         .eq("user_id", userId)
         .eq("language_code", data.language)
         .maybeSingle(),
-      supabase.from("user_lesson_progress").select("lesson_id, passed"),
+      supabase.from("user_lesson_progress").select("lesson_id, passed, score"),
     ]);
     const passedIds = new Set((progress ?? []).filter((p) => p.passed).map((p) => p.lesson_id));
+    const scoreMap = new Map((progress ?? []).map((p) => [p.lesson_id, p.score]));
     const currentCefr = userLevel?.current_cefr ?? "A1";
     const cefrOrder = ["A1", "A2", "B1", "B2", "C1", "C2"];
     const currentIdx = cefrOrder.indexOf(currentCefr);
@@ -238,6 +239,10 @@ export const getCourses = createServerFn({ method: "POST" })
         .sort((a, b) => a.order_index - b.order_index)
         .map((c) => {
           const lessonIds = (c.lessons ?? []).map((l: { id: string }) => l.id);
+          // A course wrapping exactly one lesson is really just that
+          // lesson's own card — its id is exposed so the card can link
+          // straight to the lesson and skip the course page entirely.
+          const soloLessonId = lessonIds.length === 1 ? lessonIds[0] : null;
           return {
             id: c.id,
             title_sorani: c.title_sorani,
@@ -249,6 +254,9 @@ export const getCourses = createServerFn({ method: "POST" })
             coverImageUrl: c.cover_image_path ? supabase.storage.from("course-covers").getPublicUrl(c.cover_image_path).data.publicUrl : null,
             totalLessons: lessonIds.length,
             completedLessons: lessonIds.filter((id: string) => passedIds.has(id)).length,
+            soloLessonId,
+            soloPassed: soloLessonId ? passedIds.has(soloLessonId) : false,
+            soloScore: soloLessonId ? (scoreMap.get(soloLessonId) ?? 0) : 0,
           };
         });
       return { id: lvl.id, cefr: lvl.cefr, unlocked: levelUnlocked, courses };
