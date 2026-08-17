@@ -314,13 +314,20 @@ export const getLesson = createServerFn({ method: "POST" })
     const [{ data: lesson }, { data: exercises }] = await Promise.all([
       supabase
         .from("lessons")
-        .select("id, title_sorani, title_badini, title_en, grammar_md_sorani, grammar_md_badini, grammar_md_en, dialogue_json, steps_json, level_id, course_id, levels(cefr, language_code)")
+        .select("id, title_sorani, title_badini, title_en, grammar_md_sorani, grammar_md_badini, grammar_md_en, dialogue_json, steps_json, level_id, course_id, levels(cefr, language_code), courses(lessons(id))")
         .eq("id", data.lessonId)
         .maybeSingle(),
       supabase.from("lesson_exercises").select("*").eq("lesson_id", data.lessonId).order("order_index"),
     ]);
     if (!lesson) throw new Error("Lesson not found");
-    return { lesson, exercises: exercises ?? [] };
+    // A lesson whose course wraps only this one lesson is, for the learner,
+    // the course itself (see getCourses' soloLessonId). "Back" and "continue"
+    // from the runner should return straight to the level page in that case —
+    // not to a course page that would just re-show this same lesson as a
+    // single item to click again.
+    const courseLessons = (lesson as unknown as { courses?: { lessons?: { id: string }[] } }).courses?.lessons ?? [];
+    const isSoloCourse = courseLessons.length <= 1;
+    return { lesson, exercises: exercises ?? [], isSoloCourse };
   });
 
 export const submitLessonQuiz = createServerFn({ method: "POST" })
