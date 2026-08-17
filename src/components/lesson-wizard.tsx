@@ -30,7 +30,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
-import { type LessonStep, blankStep, parseLessonJson, JSON_STEPS_EXAMPLE } from "@/lib/lesson-steps";
+import { type LessonStep, blankStep, parseLessonJson, BLOCK_IMPORT_EXAMPLE } from "@/lib/lesson-steps";
 import {
   adminUpsertLesson, adminUpsertExercise, adminDeleteExercise, adminUpsertCourse,
   translateLessonWords, searchWordPhotos, importPhotoToLibrary, generateWordImage, generateWordAudio,
@@ -163,9 +163,9 @@ export function LessonWizard({ open, onOpenChange, course, syncCourseCard = fals
   const coverUrl = coverPath ? supabase.storage.from("course-covers").getPublicUrl(coverPath).data.publicUrl : "";
 
   /* -------- optional JSON import, used from inside the Build stage -------- */
-  // Purely additive: parsed steps are appended to whatever's already on the
-  // canvas, never overwrite it. Building by hand and importing JSON can be
-  // mixed freely, in any order.
+  // Purely additive: parsed steps/exercises are appended to whatever's
+  // already on the canvas, never overwrite it. Building by hand and
+  // importing JSON can be mixed freely, in any order.
   const importFromJson = async () => {
     let parsed: ReturnType<typeof parseLessonJson>;
     try {
@@ -177,10 +177,13 @@ export function LessonWizard({ open, onOpenChange, course, syncCourseCard = fals
     }
     const merged = [...steps, ...parsed.steps];
     setSteps(merged);
+    if (parsed.exercises.length > 0) setExercises((prev) => [...prev, ...parsed.exercises]);
     if (parsed.title && !titleEn.trim()) setTitleEn(parsed.title);
     setJsonDialogOpen(false);
     setJsonText("");
-    toast.success(`${parsed.steps.length} step${parsed.steps.length === 1 ? "" : "s"} added from JSON`);
+    const parts = [`${parsed.steps.length} step${parsed.steps.length === 1 ? "" : "s"}`];
+    if (parsed.exercises.length > 0) parts.push(`${parsed.exercises.length} exercise${parsed.exercises.length === 1 ? "" : "s"}`);
+    toast.success(`${parts.join(" and ")} added from JSON`);
     const withPhotos = await fetchMissingPhotos(merged);
     setSteps(withPhotos);
   };
@@ -475,14 +478,14 @@ export function LessonWizard({ open, onOpenChange, course, syncCourseCard = fals
           <DialogContent className="max-w-2xl">
             <DialogHeader><DialogTitle>Import from JSON</DialogTitle></DialogHeader>
             <p className="text-sm text-muted-foreground">
-              Optional shortcut — paste the JSON for this lesson and its words, sentences, pictures and tips are added to the canvas automatically (pictures are fetched too). You can keep adding or editing steps by hand afterwards.
+              Optional shortcut — paste the JSON for this lesson and its words, sentences, pictures, tips and exercises are added to the canvas automatically (pictures are fetched too). Exercises are optional — leave that array out entirely if this lesson doesn't need any. You can keep adding or editing anything by hand afterwards.
             </p>
             <Textarea
               value={jsonText}
               onChange={(e) => setJsonText(e.target.value)}
               rows={12}
               className="font-mono text-xs"
-              placeholder={JSON_STEPS_EXAMPLE}
+              placeholder={BLOCK_IMPORT_EXAMPLE}
               dir="ltr"
             />
             {parseError && <p className="text-sm text-destructive">{parseError}</p>}
