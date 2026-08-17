@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { AppShell } from "@/components/app-shell";
@@ -27,7 +27,6 @@ import {
   adminListUsers,
   adminUpsertLesson,
   adminDeleteLesson,
-  adminUpsertCourse,
   adminDeleteCourse,
   adminUpsertVocab,
   adminDeleteVocab,
@@ -110,6 +109,20 @@ function LessonsTab() {
   const [lang, setLang] = useState("en");
   const [cefr, setCefr] = useState("A1");
   const [activeCourse, setActiveCourse] = useState<null | { id: string; title_sorani: string; level_id: string; order_index: number }>(null);
+  // Whether arriving at the course's lesson list should jump straight into
+  // editing its one lesson (clicking an existing lesson to open/edit it) or
+  // just show the list as-is (right after creating a brand-new one, so the
+  // admin sees the "it's been added" confirmation first instead of being
+  // dropped straight back into the builder).
+  const [autoEditSingle, setAutoEditSingle] = useState(false);
+
+  const openCourse = (
+    c: { id: string; title_sorani: string; level_id: string; order_index: number },
+    opts?: { autoEdit?: boolean },
+  ) => {
+    setAutoEditSingle(!!opts?.autoEdit);
+    setActiveCourse(c);
+  };
 
   return (
     <div>
@@ -120,9 +133,9 @@ function LessonsTab() {
         setCefr={(v) => { setCefr(v); setActiveCourse(null); }}
       />
       {activeCourse ? (
-        <CourseLessonsPanel course={activeCourse} lang={lang} onBack={() => setActiveCourse(null)} />
+        <CourseLessonsPanel course={activeCourse} lang={lang} onBack={() => setActiveCourse(null)} autoEditSingle={autoEditSingle} />
       ) : (
-        <CoursesPanel lang={lang} cefr={cefr} onOpenCourse={setActiveCourse} />
+        <CoursesPanel lang={lang} cefr={cefr} onOpenCourse={openCourse} />
       )}
     </div>
   );
@@ -131,40 +144,23 @@ function LessonsTab() {
 function CoursesPanel({ lang, cefr, onOpenCourse }: {
   lang: string;
   cefr: string;
-  onOpenCourse: (c: { id: string; title_sorani: string; level_id: string; order_index: number }) => void;
+  onOpenCourse: (
+    c: { id: string; title_sorani: string; level_id: string; order_index: number },
+    opts?: { autoEdit?: boolean },
+  ) => void;
 }) {
   const { t } = useDialect();
   const qc = useQueryClient();
   const list = useServerFn(adminListCourses);
-  const upsert = useServerFn(adminUpsertCourse);
   const del = useServerFn(adminDeleteCourse);
   const q = useQuery({ queryKey: ["admin-courses", lang, cefr], queryFn: () => list({ data: { language: lang as never, cefr: cefr as never } }) });
-  const [editing, setEditing] = useState<null | Record<string, unknown>>(null);
-  const [open, setOpen] = useState(false);
   const [lessonWizardOpen, setLessonWizardOpen] = useState(false);
 
-  const save = useMutation({
-    mutationFn: async (payload: Record<string, unknown>) => upsert({ data: payload as never }),
-    onSuccess: () => { toast.success(t("saved")); qc.invalidateQueries({ queryKey: ["admin-courses"] }); setOpen(false); },
-    onError: (e: Error) => toast.error(e.message),
-  });
   const remove = useMutation({
     mutationFn: async (id: string) => del({ data: { id } }),
     onSuccess: () => { toast.success(t("deleted")); qc.invalidateQueries({ queryKey: ["admin-courses"] }); },
     onError: (e: Error) => toast.error(e.message),
   });
-
-  const openNew = () => {
-    if (!q.data?.levelId) { toast.error("No level for this language/CEFR. Add one in the database first."); return; }
-    setEditing({
-      level_id: q.data.levelId,
-      order_index: (q.data.courses.length ?? 0),
-      title_sorani: "", title_badini: "", title_en: "",
-      description_sorani: "", description_badini: "", description_en: "",
-      cover_image_path: "",
-    });
-    setOpen(true);
-  };
 
   const openNewLesson = () => {
     if (!q.data?.levelId) { toast.error("No level for this language/CEFR yet — add one in the database first."); return; }
@@ -199,19 +195,19 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
 
   return (
     <div>
-      <p className="text-sm text-muted-foreground mb-3">Add a lesson with the button below — it's fully standalone, name it, build it and it's done, no course setup involved. (The list below is still handy for browsing, editing, or grouping several lessons under one themed unit if you ever want to.)</p>
-      <div className="flex justify-end gap-2 mb-4">
+      <p className="text-sm text-muted-foreground mb-3">Add a lesson with the button below — it's fully standalone, name it, build it and it's done. Click any lesson below to reopen the exact same builder, picking up right where you left off — JSON, steps and exercises included.</p>
+      <div className="flex justify-end mb-4">
         <Button onClick={openNewLesson}>+ Add new lesson</Button>
-        <Button variant="outline" onClick={openNew}>{t("add_new")}</Button>
       </div>
       <div className="grid gap-3">
         {(q.data?.courses ?? []).length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
         {(q.data?.courses ?? []).map((c) => {
           const coverUrl = c.cover_image_path ? supabase.storage.from("course-covers").getPublicUrl(c.cover_image_path).data.publicUrl : null;
+          const openForEdit = () => onOpenCourse({ id: c.id, title_sorani: c.title_sorani, level_id: c.level_id, order_index: c.order_index }, { autoEdit: true });
           return (
           <Card key={c.id}>
             <CardContent className="p-4 flex justify-between items-center gap-3">
-              <button type="button" className="text-left flex-1 min-w-0 flex items-center gap-3" onClick={() => onOpenCourse({ id: c.id, title_sorani: c.title_sorani, level_id: c.level_id, order_index: c.order_index })}>
+              <button type="button" className="text-left flex-1 min-w-0 flex items-center gap-3" onClick={openForEdit}>
                 <div className="h-10 w-14 shrink-0 rounded-md overflow-hidden bg-muted grid place-items-center">
                   {coverUrl ? <img src={coverUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-[10px] text-muted-foreground">No image</span>}
                 </div>
@@ -221,7 +217,7 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
                 </div>
               </button>
               <div className="flex gap-2 shrink-0">
-                <Button variant="outline" size="sm" onClick={() => { setEditing(c as unknown as Record<string, unknown>); setOpen(true); }}>{t("edit")}</Button>
+                <Button variant="outline" size="sm" onClick={openForEdit}>{t("edit")}</Button>
                 <Button variant="destructive" size="sm" onClick={() => { if (confirm(t("confirm_delete"))) remove.mutate(c.id); }}>{t("delete")}</Button>
               </div>
             </CardContent>
@@ -229,94 +225,6 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
           );
         })}
       </div>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Course</DialogTitle></DialogHeader>
-          {editing && <CourseForm value={editing} onChange={setEditing} />}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>{t("cancel")}</Button>
-            <Button onClick={() => editing && save.mutate(editing)} disabled={save.isPending}>{t("save")}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function CourseForm({ value, onChange }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
-  const set = (k: string, v: unknown) => onChange({ ...value, [k]: v });
-  const [uploadingCover, setUploadingCover] = useState(false);
-  const [coverEditor, setCoverEditor] = useState<{ url: string; crossOrigin: boolean; revoke: boolean } | null>(null);
-
-  const coverPreviewUrl = value.cover_image_path
-    ? supabase.storage.from("course-covers").getPublicUrl(value.cover_image_path as string).data.publicUrl
-    : null;
-
-  const onCoverUpload = async (blob: Blob) => {
-    setUploadingCover(true);
-    try {
-      const path = `${crypto.randomUUID()}.jpg`;
-      const { error } = await supabase.storage.from("course-covers").upload(path, blob, { upsert: false, contentType: blob.type || "image/jpeg" });
-      if (error) throw error;
-      set("cover_image_path", path);
-      toast.success("Cover image uploaded");
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setUploadingCover(false);
-    }
-  };
-  const openCoverEditorForFile = (file: File) => setCoverEditor({ url: URL.createObjectURL(file), crossOrigin: false, revoke: true });
-  const openCoverEditorForCurrent = () => { if (coverPreviewUrl) setCoverEditor({ url: coverPreviewUrl, crossOrigin: true, revoke: false }); };
-  const closeCoverEditor = () => { if (coverEditor?.revoke) URL.revokeObjectURL(coverEditor.url); setCoverEditor(null); };
-
-  return (
-    <div className="grid gap-3">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div><Label>Order</Label><Input type="number" value={value.order_index as number} onChange={(e) => set("order_index", Number(e.target.value))} /></div>
-        <div><Label>Title (Sorani)</Label><Input value={(value.title_sorani ?? "") as string} onChange={(e) => set("title_sorani", e.target.value)} /></div>
-      </div>
-      <div><Label>Title (Badini)</Label><Input value={(value.title_badini ?? "") as string} onChange={(e) => set("title_badini", e.target.value)} /></div>
-      <div><Label>Title (English)</Label><Input placeholder="e.g. Greetings and Introductions" value={(value.title_en ?? "") as string} onChange={(e) => set("title_en", e.target.value)} /></div>
-      <div><Label>Description (Sorani)</Label><Textarea value={(value.description_sorani ?? "") as string} onChange={(e) => set("description_sorani", e.target.value)} /></div>
-      <div><Label>Description (Badini)</Label><Textarea value={(value.description_badini ?? "") as string} onChange={(e) => set("description_badini", e.target.value)} /></div>
-      <div><Label>Description (English)</Label><Textarea value={(value.description_en ?? "") as string} onChange={(e) => set("description_en", e.target.value)} /></div>
-
-      <div className="rounded-md border p-3 bg-muted/30 grid gap-2">
-        <Label>Cover image</Label>
-        <Input
-          type="file"
-          accept="image/*"
-          disabled={uploadingCover}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) openCoverEditorForFile(f);
-            e.target.value = "";
-          }}
-        />
-        {coverPreviewUrl ? (
-          <>
-            <div className="relative aspect-[4/3] w-40 rounded-md overflow-hidden bg-muted">
-              <img src={coverPreviewUrl} alt="Course cover preview" className="w-full h-full object-cover" />
-            </div>
-            <Button type="button" size="sm" variant="outline" className="w-fit" disabled={uploadingCover} onClick={openCoverEditorForCurrent}>
-              Adjust crop
-            </Button>
-          </>
-        ) : (
-          <p className="text-xs text-muted-foreground">Shown on the course card learners tap to open this course. You'll be able to pan &amp; zoom it before it uploads.</p>
-        )}
-        {uploadingCover && <p className="text-xs">Uploading cover…</p>}
-      </div>
-
-      {coverEditor && (
-        <BannerEditorDialog
-          imageUrl={coverEditor.url}
-          crossOrigin={coverEditor.crossOrigin}
-          onCancel={closeCoverEditor}
-          onSave={(blob) => { closeCoverEditor(); onCoverUpload(blob); }}
-        />
-      )}
     </div>
   );
 }
@@ -324,7 +232,7 @@ function CourseForm({ value, onChange }: { value: Record<string, unknown>; onCha
 // Lessons inside a course. Creating and editing both go through the same
 // three-step wizard (paste JSON → workflow canvas → cover & save), so editing
 // a lesson walks the exact steps it was built with, source JSON included.
-function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; title_sorani: string; level_id: string; order_index: number }; lang: string; onBack: () => void }) {
+function CourseLessonsPanel({ course, lang, onBack, autoEditSingle = false }: { course: { id: string; title_sorani: string; level_id: string; order_index: number }; lang: string; onBack: () => void; autoEditSingle?: boolean }) {
   const { t } = useDialect();
   const qc = useQueryClient();
   const list = useServerFn(adminListLessons);
@@ -333,8 +241,25 @@ function CourseLessonsPanel({ course, lang, onBack }: { course: { id: string; ti
   const q = useQuery({ queryKey: ["admin-lessons", course.id], queryFn: () => list({ data: { courseId: course.id } }) });
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editingLesson, setEditingLesson] = useState<WizardLesson | null>(null);
+  const autoOpenedRef = useRef(false);
 
   const lessons = q.data?.lessons ?? [];
+
+  // A course created through "Add new lesson" always wraps exactly one
+  // lesson, so there's nothing useful to browse — jump straight into the
+  // same builder it was made with, pre-filled with its JSON, steps and
+  // exercises. This only fires once per visit (autoOpenedRef), and only
+  // when we arrived here to open/edit a lesson rather than right after
+  // creating one (autoEditSingle covers that distinction).
+  useEffect(() => {
+    if (!autoEditSingle || autoOpenedRef.current || !q.data) return;
+    autoOpenedRef.current = true;
+    if (lessons.length === 1) {
+      setEditingLesson(lessons[0] as unknown as WizardLesson);
+      setWizardOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoEditSingle, q.data]);
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
