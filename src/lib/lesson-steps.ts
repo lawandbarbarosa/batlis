@@ -26,10 +26,20 @@ export const BLOCK_IMPORT_EXAMPLE = `{
   "content": [
     { "type": "word", "word": "Hello", "translation": "سڵاو", "image": "images/hello.png", "sentence": "Hello, my name is John." },
     { "type": "word", "word": "Goodbye", "translation": "خواحافیز", "sentence": "Goodbye! See you tomorrow." }
+  ],
+  "exercises": [
+    { "type": "multiple_choice", "prompt": "How do you say 'Hello'?", "choices": ["Hello", "Goodbye", "Thanks"], "correct": "Hello" },
+    { "type": "translate", "prompt": "Translate: Goodbye! See you tomorrow.", "correct": "خواحافیز! سبەی دەتبینمەوە." }
   ]
 }`;
 
-export type ImportSummary = { words: number; sentences: number; images: number; tips: number; assetWarnings: number; skipped: Record<string, number> };
+export type ImportSummary = { words: number; sentences: number; images: number; tips: number; exercises: number; assetWarnings: number; skipped: Record<string, number> };
+
+export type ExerciseType = "multiple_choice" | "fill_blank" | "translate" | "listening";
+// The exercise shape a JSON import can produce — a plain-data twin of
+// WizardExercise (which also carries an `id` once saved), kept here so
+// this file has no dependency on the wizard component.
+export type ParsedExercise = { type: ExerciseType; prompt: string; choices: string[]; correct: string; hint_sorani?: string; hint_badini?: string };
 
 // Accepts either the app's own step shape (target/kurdish_sorani/kurdish_badini/audio_url)
 // or the more natural "word bundle" shape from a hand-authored course JSON
@@ -38,7 +48,7 @@ export type ImportSummary = { words: number; sentences: number; images: number; 
 // yet, so they're counted and skipped rather than silently dropped.
 export function blockContentToSteps(content: unknown[]): { steps: LessonStep[]; summary: ImportSummary } {
   const steps: LessonStep[] = [];
-  const summary: ImportSummary = { words: 0, sentences: 0, images: 0, tips: 0, assetWarnings: 0, skipped: {} };
+  const summary: ImportSummary = { words: 0, sentences: 0, images: 0, tips: 0, exercises: 0, assetWarnings: 0, skipped: {} };
   const asStr = (v: unknown): string => (typeof v === "string" ? v : v == null ? "" : String(v));
   const asAsset = (v: unknown): string => {
     const s = asStr(v);
@@ -89,13 +99,41 @@ export function blockContentToSteps(content: unknown[]): { steps: LessonStep[]; 
   return { steps, summary };
 }
 
+const EXERCISE_TYPES: ExerciseType[] = ["multiple_choice", "fill_blank", "translate", "listening"];
+
+// Same tolerant-normalization idea as blockContentToSteps, but for
+// exercises: accepts a few common aliases (question/answer/options) so a
+// hand-authored JSON doesn't have to match the app's field names exactly.
+export function blockExercisesToList(exercises: unknown[]): { exercises: ParsedExercise[]; count: number } {
+  const asStr = (v: unknown): string => (typeof v === "string" ? v : v == null ? "" : String(v));
+  const list: ParsedExercise[] = [];
+  for (const raw of exercises ?? []) {
+    const item = (raw ?? {}) as Record<string, unknown>;
+    const rawType = typeof item.type === "string" ? item.type.replace(/[\s-]/g, "_").toLowerCase() : "";
+    const type: ExerciseType = (EXERCISE_TYPES as string[]).includes(rawType) ? (rawType as ExerciseType) : "multiple_choice";
+    const choicesRaw = item.choices ?? item.options;
+    const choices = Array.isArray(choicesRaw) ? choicesRaw.map(asStr) : [];
+    list.push({
+      type,
+      prompt: asStr(item.prompt ?? item.question),
+      choices,
+      correct: asStr(item.correct ?? item.answer ?? item.correct_answer),
+      hint_sorani: asStr(item.hint_sorani),
+      hint_badini: asStr(item.hint_badini),
+    });
+  }
+  return { exercises: list, count: list.length };
+}
+
 /**
  * Turns whatever an admin pastes for ONE lesson into a title + steps.
  * Tolerates: a bare array of content items, `{ title, content }`,
  * `{ title, blocks: [...] }` (blocks are flattened into one lesson) and
- * `{ lesson: {...} }` wrappers.
+ * `{ lesson: {...} }` wrappers. An `exercises` array can be included
+ * alongside `content` at the same level (see BLOCK_IMPORT_EXAMPLE) — it's
+ * entirely optional; a lesson with no exercises imports just fine.
  */
-export function parseLessonJson(text: string): { title: string; steps: LessonStep[]; summary: ImportSummary } {
+export function parseLessonJson(text: string): { title: string; steps: LessonStep[]; exercises: ParsedExercise[]; summary: ImportSummary } {
   const parsed = JSON.parse(text) as unknown;
   const root = (Array.isArray(parsed) ? { content: parsed } : ((parsed ?? {}) as Record<string, unknown>)) as Record<string, unknown>;
   const inner = (root.lesson ?? root.data ?? root) as Record<string, unknown>;
@@ -111,6 +149,9 @@ export function parseLessonJson(text: string): { title: string; steps: LessonSte
     }
   } else if (Array.isArray(inner.words)) content = (inner.words as unknown[]).map((w) => ({ type: "word", ...(w as object) }));
 
+  const exercisesRaw = Array.isArray(inner.exercises) ? (inner.exercises as unknown[]) : [];
+
   const { steps, summary } = blockContentToSteps(content);
-  return { title: (titleOf(inner) ?? titleOf(root) ?? "").trim(), steps, summary };
+  const { exercises, count } = blockExercisesToList(exercisesRaw);
+  return { title: (titleOf(inner) ?? titleOf(root) ?? "").trim(), steps, exercises, summary: { ...summary, exercises: count } };
 }
