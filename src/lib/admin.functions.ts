@@ -237,6 +237,7 @@ const lessonStepSchema = z.discriminatedUnion("type", [
     kurdish_sorani: z.string().max(200).optional(),
     kurdish_badini: z.string().max(200).optional(),
     audio_url: z.string().max(500).optional().or(z.literal("")),
+    image_url: z.string().max(500).optional().or(z.literal("")),
   }),
   z.object({
     type: z.literal("sentence"),
@@ -244,6 +245,7 @@ const lessonStepSchema = z.discriminatedUnion("type", [
     kurdish_sorani: z.string().max(500).optional(),
     kurdish_badini: z.string().max(500).optional(),
     audio_url: z.string().max(500).optional().or(z.literal("")),
+    image_url: z.string().max(500).optional().or(z.literal("")),
   }),
   z.object({
     type: z.literal("image"),
