@@ -3,6 +3,7 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import { useDialect } from "@/hooks/use-dialect";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { BackArrow } from "@/components/dir-arrow";
 import { cn } from "@/lib/utils";
 
 // Shared building blocks for the multi-step signup wizard
@@ -53,7 +54,7 @@ export function OnboardingShell({
         <div className="w-full max-w-2xl py-6">
           {backTo && (
             <Link to={backTo} className="inline-block mb-4 text-sm text-muted-foreground hover:text-foreground">
-              ←
+              <BackArrow dialect={dialect} className="h-4 w-4" />
             </Link>
           )}
           {children}
