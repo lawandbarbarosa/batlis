@@ -106,21 +106,26 @@ function LessonRunner() {
     : lesson.grammar_md_sorani;
   const langCode: string = (lesson as unknown as { levels?: { language_code?: string } }).levels?.language_code ?? "en";
 
+  // Shown on every step of the lesson so users can always jump straight back
+  // to the course's lesson list (or the courses list for solo courses),
+  // instead of only being able to go back one step/word/question at a time.
+  const backToLessonsLink = data.isSoloCourse ? (
+    <button onClick={() => navigate({ to: "/learn/$lang", params: { lang: langCode as "en" | "de" | "ar" | "ko" } })} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
+      <BackArrow dialect={dialect} className="h-3.5 w-3.5" />
+      {t("courses")}
+    </button>
+  ) : (
+    <button onClick={() => navigate({ to: "/course/$id", params: { id: lesson.course_id } })} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
+      <BackArrow dialect={dialect} className="h-3.5 w-3.5" />
+      {t("back_to_course")}
+    </button>
+  );
+
   if (step === "intro") {
     return (
       <AppShell activeLang={langCode}>
         <div className="max-w-3xl mx-auto py-6">
-          {data.isSoloCourse ? (
-            <button onClick={() => navigate({ to: "/learn/$lang", params: { lang: langCode as "en" | "de" | "ar" | "ko" } })} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
-              <BackArrow dialect={dialect} className="h-3.5 w-3.5" />
-              {t("courses")}
-            </button>
-          ) : (
-            <button onClick={() => navigate({ to: "/course/$id", params: { id: lesson.course_id } })} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
-              <BackArrow dialect={dialect} className="h-3.5 w-3.5" />
-              {t("back_to_course")}
-            </button>
-          )}
+          {backToLessonsLink}
           <h1 className="font-display text-3xl sm:text-4xl font-bold">{title}</h1>
           <div className="mt-8 bento-card p-5 sm:p-8 whitespace-pre-wrap leading-loose">
             {grammar}
@@ -165,6 +170,7 @@ function LessonRunner() {
     return (
       <AppShell activeLang={langCode}>
         <div className="max-w-2xl mx-auto py-6">
+          {backToLessonsLink}
           <div className="mb-6">
             <div className="flex justify-between text-sm text-muted-foreground mb-2">
               <span>{wordIdx + 1} {t("of")} {steps.length}</span>
@@ -234,6 +240,7 @@ function LessonRunner() {
     return (
       <AppShell activeLang={langCode}>
         <div className="max-w-2xl mx-auto py-6">
+          {backToLessonsLink}
           <div className="mb-6">
             <div className="flex justify-between text-sm text-muted-foreground mb-2">
               <span>{t("question")} {idx + 1} {t("of")} {exercises.length}</span>
@@ -299,6 +306,7 @@ function LessonRunner() {
   return (
     <AppShell activeLang={langCode}>
       <div className="max-w-md mx-auto text-center py-16">
+        <div className="text-left rtl:text-right">{backToLessonsLink}</div>
         <div className={`h-24 w-24 mx-auto rounded-full grid place-items-center shadow-elegant ${result?.passed ? "gradient-brand" : "bg-destructive/15"}`}>
           {result?.passed ? <CheckCircle2 className="h-12 w-12 text-primary-foreground" /> : <XCircle className="h-12 w-12 text-destructive" />}
         </div>
