@@ -8,7 +8,8 @@ import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FlagIcon } from "@/components/flag-icon";
-import { Loader2, Flame, Trophy, BookOpen, PlayCircle, Library, Target, Sparkles, ArrowLeft } from "lucide-react";
+import { ForwardArrow } from "@/components/dir-arrow";
+import { Loader2, Flame, Trophy, BookOpen, PlayCircle, Library, Target, Sparkles } from "lucide-react";
 
 // Languages with real authored lesson/vocab/video content. Everything else in
 // the `languages` table still shows up in the switcher, just muted and
@@ -129,15 +130,15 @@ function Dashboard() {
               {data.recentLesson ? (
                 <Button asChild size="lg" className="gradient-brand shadow-elegant">
                   <Link to="/lesson/$id" params={{ id: data.recentLesson.id }}>
-                    <ArrowLeft className="ml-2 h-4 w-4" />
                     {t("continue")}
+                    <ForwardArrow dialect={dialect} className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
               ) : (
                 <Button asChild size="lg" className="gradient-brand shadow-elegant">
                   <Link to="/learn/$lang" params={{ lang: data.activeLang ?? "en" }}>
-                    <ArrowLeft className="ml-2 h-4 w-4" />
                     {t("start")}
+                    <ForwardArrow dialect={dialect} className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
               )}
