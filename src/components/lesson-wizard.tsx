@@ -67,7 +67,7 @@ type Node = { kind: "step"; index: number } | { kind: "exercise"; index: number 
 
 const STEP_LABELS = ["Details", "Build lesson", "Cover & save"];
 
-export function LessonWizard({ open, onOpenChange, course, syncCourseCard = false, levelId, lang, defaultOrderIndex, lesson, onSaved, inline = false }: {
+export function LessonWizard({ open, onOpenChange, course, syncCourseCard = false, levelId, lang, defaultOrderIndex, newCourseOrderIndex = 0, lesson, onSaved, inline = false }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   // Lock the lesson into an existing course (e.g. a legacy multi-lesson
@@ -85,6 +85,11 @@ export function LessonWizard({ open, onOpenChange, course, syncCourseCard = fals
   levelId: string;
   lang: string;
   defaultOrderIndex: number;
+  // Where a brand-new standalone lesson's auto-created course should sort
+  // among its siblings on the learner's course grid (e.g. the current
+  // lesson count, so it lands after everything already there). Ignored
+  // when `course` is set — an existing course keeps its own order_index.
+  newCourseOrderIndex?: number;
   lesson?: WizardLesson | null;
   onSaved: (course: { id: string; level_id: string; order_index: number; title_sorani: string }) => void;
   inline?: boolean;
@@ -264,7 +269,7 @@ export function LessonWizard({ open, onOpenChange, course, syncCourseCard = fals
         const savedCourse = await upsertCourse({
           data: {
             level_id: levelId,
-            order_index: 0,
+            order_index: newCourseOrderIndex,
             title_sorani: so,
             title_badini: ba,
             title_en: titleEn || undefined,
