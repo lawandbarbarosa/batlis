@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { AppShell } from "@/components/app-shell";
@@ -18,8 +18,7 @@ import { useDialect } from "@/hooks/use-dialect";
 import { cn } from "@/lib/utils";
 import {
   getIsAdmin,
-  adminListLessons,
-  adminListCourses,
+  adminListAllLessons,
   adminListVocab,
   adminListVideos,
   adminGetVideoInsights,
@@ -108,85 +107,100 @@ function LangCefrPicker({ lang, setLang, cefr, setCefr }: { lang: string; setLan
 function LessonsTab() {
   const [lang, setLang] = useState("en");
   const [cefr, setCefr] = useState("A1");
-  const [activeCourse, setActiveCourse] = useState<null | { id: string; title_sorani: string; level_id: string; order_index: number }>(null);
-  // Whether arriving at the course's lesson list should jump straight into
-  // editing its one lesson (clicking an existing lesson to open/edit it) or
-  // just show the list as-is (right after creating a brand-new one, so the
-  // admin sees the "it's been added" confirmation first instead of being
-  // dropped straight back into the builder).
-  const [autoEditSingle, setAutoEditSingle] = useState(false);
-
-  const openCourse = (
-    c: { id: string; title_sorani: string; level_id: string; order_index: number },
-    opts?: { autoEdit?: boolean },
-  ) => {
-    setAutoEditSingle(!!opts?.autoEdit);
-    setActiveCourse(c);
-  };
 
   return (
     <div>
-      <LangCefrPicker
-        lang={lang}
-        setLang={(v) => { setLang(v); setActiveCourse(null); }}
-        cefr={cefr}
-        setCefr={(v) => { setCefr(v); setActiveCourse(null); }}
-      />
-      {activeCourse ? (
-        <CourseLessonsPanel course={activeCourse} lang={lang} onBack={() => setActiveCourse(null)} autoEditSingle={autoEditSingle} />
-      ) : (
-        <CoursesPanel lang={lang} cefr={cefr} onOpenCourse={openCourse} />
-      )}
+      <LangCefrPicker lang={lang} setLang={setLang} cefr={cefr} setCefr={setCefr} />
+      <LessonsPanel lang={lang} cefr={cefr} />
     </div>
   );
 }
 
-function CoursesPanel({ lang, cefr, onOpenCourse }: {
-  lang: string;
-  cefr: string;
-  onOpenCourse: (
-    c: { id: string; title_sorani: string; level_id: string; order_index: number },
-    opts?: { autoEdit?: boolean },
-  ) => void;
-}) {
+type AdminLessonRow = {
+  id: string;
+  course_id: string;
+  title_sorani: string;
+  title_badini: string;
+  title_en: string | null;
+  order_index: number;
+  steps_json: unknown;
+  cover_image_path: string | null;
+  lesson_exercises?: unknown[];
+  courses: { id: string; level_id: string; order_index: number };
+};
+
+// Every lesson stands entirely on its own here — there's no "course" to
+// browse into or choose between. A lesson still has a 1:1 course behind the
+// scenes (the DB requires one, and it's what the learner's lesson card
+// actually reads its cover/title from), but the admin never sees or manages
+// that layer directly: this list shows lessons, "+ Add new lesson" always
+// creates a brand-new standalone one (never adds into an existing course),
+// and clicking a lesson opens straight into editing it — never an
+// intermediate "which lesson?" page.
+function LessonsPanel({ lang, cefr }: { lang: string; cefr: string }) {
   const { t } = useDialect();
   const qc = useQueryClient();
-  const list = useServerFn(adminListCourses);
-  const del = useServerFn(adminDeleteCourse);
-  const q = useQuery({ queryKey: ["admin-courses", lang, cefr], queryFn: () => list({ data: { language: lang as never, cefr: cefr as never } }) });
-  const [lessonWizardOpen, setLessonWizardOpen] = useState(false);
+  const list = useServerFn(adminListAllLessons);
+  const delLesson = useServerFn(adminDeleteLesson);
+  const delCourse = useServerFn(adminDeleteCourse);
+  const q = useQuery({ queryKey: ["admin-all-lessons", lang, cefr], queryFn: () => list({ data: { language: lang as never, cefr: cefr as never } }) });
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [editing, setEditing] = useState<{ lesson: WizardLesson | null; course: { id: string; level_id: string; order_index: number } | null }>({ lesson: null, course: null });
 
-  const remove = useMutation({
-    mutationFn: async (id: string) => del({ data: { id } }),
-    onSuccess: () => { toast.success(t("deleted")); qc.invalidateQueries({ queryKey: ["admin-courses"] }); },
-    onError: (e: Error) => toast.error(e.message),
-  });
+  const lessons = (q.data?.lessons ?? []) as AdminLessonRow[];
 
   const openNewLesson = () => {
     if (!q.data?.levelId) { toast.error("No level for this language/CEFR yet — add one in the database first."); return; }
-    setLessonWizardOpen(true);
+    setEditing({ lesson: null, course: null });
+    setWizardOpen(true);
   };
 
-  // "Add new lesson" is the front-door entry point for lesson creation: a
-  // lesson stands on its own here — no course to pick or set up. Saving
-  // auto-creates its 1:1 course behind the scenes, and this jumps straight
-  // there so the admin sees exactly what was just added.
-  if (lessonWizardOpen) {
+  const openEditLesson = (l: AdminLessonRow) => {
+    setEditing({ lesson: l as unknown as WizardLesson, course: { id: l.courses.id, level_id: l.courses.level_id, order_index: l.courses.order_index } });
+    setWizardOpen(true);
+  };
+
+  // A lesson's own course is invisible to the admin, so deleting the lesson
+  // cleans that course up too — unless it's a legacy course shared with
+  // other lessons, in which case it's left alone.
+  const remove = useMutation({
+    mutationFn: async (l: AdminLessonRow) => {
+      await delLesson({ data: { id: l.id } });
+      const siblingCount = lessons.filter((x) => x.course_id === l.course_id).length;
+      if (siblingCount <= 1) {
+        try { await delCourse({ data: { id: l.course_id } }); } catch { /* legacy/shared course, leave it */ }
+      }
+    },
+    onSuccess: () => {
+      toast.success(t("deleted"));
+      qc.invalidateQueries({ queryKey: ["admin-all-lessons"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  if (wizardOpen) {
+    const siblingCount = editing.course ? lessons.filter((x) => x.course_id === editing.course!.id).length : 0;
     return (
       <div>
-        <button onClick={() => setLessonWizardOpen(false)} className="text-sm text-muted-foreground hover:text-foreground mb-3">← Back to lessons</button>
+        <button onClick={() => setWizardOpen(false)} className="text-sm text-muted-foreground hover:text-foreground mb-3">← Back to lessons</button>
         <LessonWizard
           inline
           open
-          onOpenChange={setLessonWizardOpen}
+          onOpenChange={setWizardOpen}
+          course={editing.course}
+          // Only sync a shared course card when this really is the only
+          // lesson inside it — a real, hand-grouped multi-lesson course
+          // (from before this redesign) must never get relabeled after
+          // just one of its lessons.
+          syncCourseCard={siblingCount <= 1}
           levelId={q.data?.levelId ?? ""}
           lang={lang}
           defaultOrderIndex={0}
-          lesson={null}
-          onSaved={(c) => {
-            qc.invalidateQueries({ queryKey: ["admin-courses"] });
-            qc.invalidateQueries({ queryKey: ["admin-lessons", c.id] });
-            onOpenCourse(c);
+          newCourseOrderIndex={lessons.length}
+          lesson={editing.lesson}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["admin-all-lessons"] });
+            setWizardOpen(false);
           }}
         />
       </div>
@@ -200,142 +214,26 @@ function CoursesPanel({ lang, cefr, onOpenCourse }: {
         <Button onClick={openNewLesson}>+ Add new lesson</Button>
       </div>
       <div className="grid gap-3">
-        {(q.data?.courses ?? []).length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
-        {(q.data?.courses ?? []).map((c) => {
-          const coverUrl = c.cover_image_path ? supabase.storage.from("course-covers").getPublicUrl(c.cover_image_path).data.publicUrl : null;
-          const openForEdit = () => onOpenCourse({ id: c.id, title_sorani: c.title_sorani, level_id: c.level_id, order_index: c.order_index }, { autoEdit: true });
-          return (
-          <Card key={c.id}>
-            <CardContent className="p-4 flex justify-between items-center gap-3">
-              <button type="button" className="text-left flex-1 min-w-0 flex items-center gap-3" onClick={openForEdit}>
-                <div className="h-10 w-14 shrink-0 rounded-md overflow-hidden bg-muted grid place-items-center">
-                  {coverUrl ? <img src={coverUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-[10px] text-muted-foreground">No image</span>}
-                </div>
-                <div className="min-w-0">
-                  <div className="font-medium">{c.order_index + 1}. {c.title_sorani}{c.title_en ? ` (${c.title_en})` : ""}</div>
-                  <div className="text-sm text-muted-foreground">{c.title_badini} · {(c.lessons ?? []).length} lesson{(c.lessons ?? []).length === 1 ? "" : "s"}</div>
-                </div>
-              </button>
-              <div className="flex gap-2 shrink-0">
-                <Button variant="outline" size="sm" onClick={openForEdit}>{t("edit")}</Button>
-                <Button variant="destructive" size="sm" onClick={() => { if (confirm(t("confirm_delete"))) remove.mutate(c.id); }}>{t("delete")}</Button>
-              </div>
-            </CardContent>
-          </Card>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// Lessons inside a course. Creating and editing both go through the same
-// three-step wizard (paste JSON → workflow canvas → cover & save), so editing
-// a lesson walks the exact steps it was built with, source JSON included.
-function CourseLessonsPanel({ course, lang, onBack, autoEditSingle = false }: { course: { id: string; title_sorani: string; level_id: string; order_index: number }; lang: string; onBack: () => void; autoEditSingle?: boolean }) {
-  const { t } = useDialect();
-  const qc = useQueryClient();
-  const list = useServerFn(adminListLessons);
-  const del = useServerFn(adminDeleteLesson);
-  const delCourse = useServerFn(adminDeleteCourse);
-  const q = useQuery({ queryKey: ["admin-lessons", course.id], queryFn: () => list({ data: { courseId: course.id } }) });
-  const [wizardOpen, setWizardOpen] = useState(false);
-  const [editingLesson, setEditingLesson] = useState<WizardLesson | null>(null);
-  const autoOpenedRef = useRef(false);
-
-  const lessons = q.data?.lessons ?? [];
-
-  // A course created through "Add new lesson" always wraps exactly one
-  // lesson, so there's nothing useful to browse — jump straight into the
-  // same builder it was made with, pre-filled with its JSON, steps and
-  // exercises. This only fires once per visit (autoOpenedRef), and only
-  // when we arrived here to open/edit a lesson rather than right after
-  // creating one (autoEditSingle covers that distinction).
-  useEffect(() => {
-    if (!autoEditSingle || autoOpenedRef.current || !q.data) return;
-    autoOpenedRef.current = true;
-    if (lessons.length === 1) {
-      setEditingLesson(lessons[0] as unknown as WizardLesson);
-      setWizardOpen(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoEditSingle, q.data]);
-
-  const remove = useMutation({
-    mutationFn: async (id: string) => {
-      await del({ data: { id } });
-      // This was the only lesson in the course — it was standing in as that
-      // lesson's own card, so there's nothing left for it to wrap.
-      if (lessons.length === 1) {
-        try { await delCourse({ data: { id: course.id } }); } catch { /* legacy course, leave it */ }
-      }
-    },
-    onSuccess: () => {
-      toast.success(t("deleted"));
-      qc.invalidateQueries({ queryKey: ["admin-lessons"] });
-      qc.invalidateQueries({ queryKey: ["admin-courses"] });
-      if (lessons.length === 1) onBack();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  if (wizardOpen) {
-    return (
-      <div>
-        <button onClick={() => setWizardOpen(false)} className="text-sm text-muted-foreground hover:text-foreground mb-3">← Back to lessons</button>
-        <LessonWizard
-          inline
-          open
-          onOpenChange={setWizardOpen}
-          course={course}
-          // Only this lesson lives in this course, so it's safe (and right)
-          // to keep the course's own card in sync with it. A real
-          // multi-lesson course never hits this — editing one lesson there
-          // must never rename the shared card.
-          syncCourseCard={lessons.length <= 1}
-          levelId={course.level_id}
-          lang={lang}
-          defaultOrderIndex={lessons.length}
-          lesson={editingLesson}
-          onSaved={() => {
-            qc.invalidateQueries({ queryKey: ["admin-lessons"] });
-            qc.invalidateQueries({ queryKey: ["admin-courses"] });
-          }}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground mb-3">← Back to courses</button>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-display text-lg font-semibold">{course.title_sorani}</h3>
-        <Button onClick={() => { setEditingLesson(null); setWizardOpen(true); }}>Create a new lesson</Button>
-      </div>
-
-      <div className="grid gap-3">
         {lessons.length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
         {lessons.map((l) => {
-          const cover = (l as { cover_image_path?: string | null }).cover_image_path;
-          const coverUrl = cover ? supabase.storage.from("course-covers").getPublicUrl(cover).data.publicUrl : null;
+          const coverUrl = l.cover_image_path ? supabase.storage.from("course-covers").getPublicUrl(l.cover_image_path).data.publicUrl : null;
           return (
             <Card key={l.id}>
               <CardContent className="p-4 flex justify-between items-center gap-3">
-                <div className="flex items-center gap-3 min-w-0">
+                <button type="button" className="text-left flex-1 min-w-0 flex items-center gap-3" onClick={() => openEditLesson(l)}>
                   <div className="h-10 w-14 shrink-0 rounded-md overflow-hidden bg-muted grid place-items-center">
                     {coverUrl ? <img src={coverUrl} alt="" className="h-full w-full object-cover" /> : <ImageIcon className="h-4 w-4 text-muted-foreground" />}
                   </div>
                   <div className="min-w-0">
-                    <div className="font-medium truncate">{l.order_index + 1}. {l.title_sorani}{l.title_en ? ` (${l.title_en})` : ""}</div>
+                    <div className="font-medium truncate">{l.title_sorani}{l.title_en ? ` (${l.title_en})` : ""}</div>
                     <div className="text-sm text-muted-foreground">
                       {l.title_badini} · {(Array.isArray(l.steps_json) ? l.steps_json.length : 0)} steps · {(l.lesson_exercises ?? []).length} exercises
                     </div>
                   </div>
-                </div>
+                </button>
                 <div className="flex gap-2 shrink-0">
-                  <Button variant="outline" size="sm" onClick={() => { setEditingLesson(l as unknown as WizardLesson); setWizardOpen(true); }}>{t("edit")}</Button>
-                  <Button variant="destructive" size="sm" onClick={() => { if (confirm(t("confirm_delete"))) remove.mutate(l.id); }}>{t("delete")}</Button>
+                  <Button variant="outline" size="sm" onClick={() => openEditLesson(l)}>{t("edit")}</Button>
+                  <Button variant="destructive" size="sm" onClick={() => { if (confirm(t("confirm_delete"))) remove.mutate(l); }}>{t("delete")}</Button>
                 </div>
               </CardContent>
             </Card>
