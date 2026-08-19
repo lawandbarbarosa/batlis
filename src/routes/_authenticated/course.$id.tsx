@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getCourse } from "@/lib/learn.functions";
 import { useDialect } from "@/hooks/use-dialect";
 import { AppShell } from "@/components/app-shell";
+import { BackArrow } from "@/components/dir-arrow";
 import { Loader2, Lock, CheckCircle2, PlayCircle } from "lucide-react";
 
 const paramsSchema = z.object({ id: z.string().uuid() });
@@ -57,7 +58,10 @@ function CourseView() {
   return (
     <AppShell activeLang={langCode}>
       <div className="max-w-3xl mx-auto py-6">
-        <Link to="/learn/$lang" params={{ lang: langCode as "en" | "de" | "ar" | "ko" }} className="text-sm text-muted-foreground hover:text-foreground mb-4 inline-block">← {t("courses")}</Link>
+        <Link to="/learn/$lang" params={{ lang: langCode as "en" | "de" | "ar" | "ko" }} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
+          <BackArrow dialect={dialect} className="h-3.5 w-3.5" />
+          {t("courses")}
+        </Link>
         <div className="flex items-center gap-3">
           {cefr && (
             <div className="h-11 w-11 rounded-xl squircle grid place-items-center gradient-brand text-primary-foreground font-display text-sm font-bold shrink-0">
