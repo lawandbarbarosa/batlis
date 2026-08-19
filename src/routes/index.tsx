@@ -5,12 +5,12 @@ import { useDialect } from "@/hooks/use-dialect";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FlagIcon } from "@/components/flag-icon";
+import { ForwardArrow } from "@/components/dir-arrow";
 import {
   BookOpen,
   Target,
   PlayCircle,
   Sparkles,
-  ArrowLeft,
   Mic,
   Library,
   Languages,
@@ -161,8 +161,8 @@ function Landing() {
                 to={authed ? "/dashboard" : "/auth"}
                 search={authed ? undefined : { mode: "signup" }}
               >
-                <ArrowLeft className="ml-2 h-4 w-4" />
                 {t("hero_cta")}
+                <ForwardArrow dialect={dialect} className="ml-2 h-4 w-4" />
               </Link>
             </Button>
             <Button asChild size="lg" variant="outline">
