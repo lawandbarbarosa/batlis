@@ -11,6 +11,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { DialectToggle } from "@/components/dialect-toggle";
 import { FlagIcon } from "@/components/flag-icon";
+import { BackArrow } from "@/components/dir-arrow";
 
 const searchSchema = z.object({
   mode: z.enum(["signin", "signup"]).optional().default("signin"),
@@ -121,7 +122,10 @@ function AuthPage() {
       {/* Right form */}
       <div className="flex flex-col p-6 md:p-10">
         <div className="flex justify-between items-center">
-          <Link to="/" className="text-sm text-muted-foreground hover:text-foreground">← گەڕانەوە</Link>
+          <Link to="/" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+            <BackArrow dialect={dialect} className="h-3.5 w-3.5" />
+            {t("back")}
+          </Link>
           <DialectToggle />
         </div>
         <div className="flex-1 flex items-center justify-center">
