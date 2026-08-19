@@ -55,6 +55,32 @@ export const adminListCourses = createServerFn({ method: "POST" })
     return { levelId: level.id, courses: courses ?? [] };
   });
 
+// Every lesson, flattened straight out from under whatever course wraps it —
+// powers the admin Lessons tab, which shows lessons as standalone items with
+// no "course" browsing step in between. `courses!inner(...)` filters lessons
+// down to this language/CEFR's level while still bringing along each
+// lesson's own course id/order (needed so editing a lesson can keep its
+// course's order_index intact instead of resetting it).
+export const adminListAllLessons = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ language: langEnum, cefr: cefrEnum }).parse(d))
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context);
+    const { data: level } = await context.supabase
+      .from("levels")
+      .select("id")
+      .eq("language_code", data.language)
+      .eq("cefr", data.cefr)
+      .maybeSingle();
+    if (!level) return { levelId: null, lessons: [] };
+    const { data: lessons } = await context.supabase
+      .from("lessons")
+      .select("*, lesson_exercises(*), courses!inner(id, level_id, order_index)")
+      .eq("courses.level_id", level.id)
+      .order("order_index");
+    return { levelId: level.id, lessons: lessons ?? [] };
+  });
+
 export const adminListVocab = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ language: langEnum, cefr: cefrEnum }).parse(d))
