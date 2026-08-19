@@ -8,7 +8,8 @@ import { useDialect } from "@/hooks/use-dialect";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, CheckCircle2, XCircle, ArrowLeft, RotateCw, Volume2 } from "lucide-react";
+import { ForwardArrow, BackArrow } from "@/components/dir-arrow";
+import { Loader2, CheckCircle2, XCircle, RotateCw, Volume2 } from "lucide-react";
 
 const paramsSchema = z.object({ id: z.string().uuid() });
 
@@ -110,9 +111,15 @@ function LessonRunner() {
       <AppShell activeLang={langCode}>
         <div className="max-w-3xl mx-auto py-6">
           {data.isSoloCourse ? (
-            <button onClick={() => navigate({ to: "/learn/$lang", params: { lang: langCode as "en" | "de" | "ar" | "ko" } })} className="text-sm text-muted-foreground hover:text-foreground mb-4">← {t("courses")}</button>
+            <button onClick={() => navigate({ to: "/learn/$lang", params: { lang: langCode as "en" | "de" | "ar" | "ko" } })} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
+              <BackArrow dialect={dialect} className="h-3.5 w-3.5" />
+              {t("courses")}
+            </button>
           ) : (
-            <button onClick={() => navigate({ to: "/course/$id", params: { id: lesson.course_id } })} className="text-sm text-muted-foreground hover:text-foreground mb-4">← {t("back_to_course")}</button>
+            <button onClick={() => navigate({ to: "/course/$id", params: { id: lesson.course_id } })} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
+              <BackArrow dialect={dialect} className="h-3.5 w-3.5" />
+              {t("back_to_course")}
+            </button>
           )}
           <h1 className="font-display text-3xl sm:text-4xl font-bold">{title}</h1>
           <div className="mt-8 bento-card p-5 sm:p-8 whitespace-pre-wrap leading-loose">
@@ -136,13 +143,13 @@ function LessonRunner() {
           <div className="mt-8 flex justify-end">
             {steps.length > 0 ? (
               <Button size="lg" className="gradient-brand" onClick={() => { setWordIdx(0); setStep("words"); }}>
-                <ArrowLeft className="ml-2 h-4 w-4" />
                 {t("words_sentences")} ({steps.length})
+                <ForwardArrow dialect={dialect} className="ml-2 h-4 w-4" />
               </Button>
             ) : (
               <Button size="lg" className="gradient-brand" onClick={() => setStep("exercises")} disabled={exercises.length === 0}>
-                <ArrowLeft className="ml-2 h-4 w-4" />
                 {t("exercises")} ({exercises.length})
+                <ForwardArrow dialect={dialect} className="ml-2 h-4 w-4" />
               </Button>
             )}
           </div>
@@ -305,9 +312,9 @@ function LessonRunner() {
         <div className="mt-8 flex justify-center gap-3">
           {result?.passed ? (
             data.isSoloCourse ? (
-              <Button asChild size="lg" className="gradient-brand"><Link to="/learn/$lang" params={{ lang: langCode as "en" | "de" | "ar" | "ko" }}><ArrowLeft className="ml-2 h-4 w-4" />{t("continue")}</Link></Button>
+              <Button asChild size="lg" className="gradient-brand"><Link to="/learn/$lang" params={{ lang: langCode as "en" | "de" | "ar" | "ko" }}>{t("continue")}<ForwardArrow dialect={dialect} className="ml-2 h-4 w-4" /></Link></Button>
             ) : (
-              <Button asChild size="lg" className="gradient-brand"><Link to="/course/$id" params={{ id: lesson.course_id }}><ArrowLeft className="ml-2 h-4 w-4" />{t("continue")}</Link></Button>
+              <Button asChild size="lg" className="gradient-brand"><Link to="/course/$id" params={{ id: lesson.course_id }}>{t("continue")}<ForwardArrow dialect={dialect} className="ml-2 h-4 w-4" /></Link></Button>
             )
           ) : (
             <Button size="lg" onClick={() => { setStep("intro"); setIdx(0); setAnswers({}); setResult(null); }} className="gradient-brand">
