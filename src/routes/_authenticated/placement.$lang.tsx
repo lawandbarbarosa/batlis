@@ -8,7 +8,8 @@ import { useDialect } from "@/hooks/use-dialect";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, CheckCircle2, ArrowLeft } from "lucide-react";
+import { ForwardArrow } from "@/components/dir-arrow";
+import { Loader2, CheckCircle2 } from "lucide-react";
 
 const paramsSchema = z.object({ lang: z.enum(["en", "de", "ar", "ko"]) });
 const searchSchema = z.object({ from: z.enum(["onboarding"]).optional() });
@@ -24,7 +25,7 @@ interface Q { id: string; difficulty_band: string; question_json: { prompt: stri
 function Placement() {
   const { lang } = Route.useParams();
   const { from } = Route.useSearch();
-  const { t } = useDialect();
+  const { t, dialect } = useDialect();
   const navigate = useNavigate();
   const startFn = useServerFn(startPlacement);
   const submitFn = useServerFn(submitPlacement);
@@ -68,7 +69,10 @@ function Placement() {
             <div className="mt-2 font-display text-6xl font-bold text-primary-ink">{result.assigned}</div>
           </div>
           <Button asChild size="lg" className="mt-8 gradient-brand">
-            <a href={continueTo}><ArrowLeft className="ml-2 h-4 w-4" />{from === "onboarding" ? t("continue") : t("go_to_dashboard")}</a>
+            <a href={continueTo}>
+              {from === "onboarding" ? t("continue") : t("go_to_dashboard")}
+              <ForwardArrow dialect={dialect} className="ml-2 h-4 w-4" />
+            </a>
           </Button>
         </div>
       </AppShell>
