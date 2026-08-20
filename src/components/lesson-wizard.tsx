@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import {
   Loader2, Plus, Trash2, ArrowLeft, ArrowRight, Image as ImageIcon, Volume2,
   Sparkles, Search, Upload, X, Type, MessageSquare, Lightbulb, HelpCircle, ZoomIn, ZoomOut, Wand2,
+  Shuffle, ExternalLink, RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,22 +31,38 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
-import { type LessonStep, blankStep, parseLessonJson, BLOCK_IMPORT_EXAMPLE } from "@/lib/lesson-steps";
+import { type LessonStep, type WordHighlight, type BuildableStepType, blankStep, parseLessonJson, tokenizeWords, BLOCK_IMPORT_EXAMPLE } from "@/lib/lesson-steps";
 import {
   adminUpsertLesson, adminUpsertExercise, adminDeleteExercise, adminUpsertCourse,
-  translateLessonWords, searchWordPhotos, importPhotoToLibrary, generateWordImage, generateWordAudio,
+  translateLessonWords, searchWordPhotos, importPhotoToLibrary, generateWordImage, generateWordAudio, generateWordMeaning,
 } from "@/lib/admin.functions";
 import { BannerEditorDialog } from "@/components/banner-editor";
 
 export type WizardExercise = {
   id?: string;
-  type: "multiple_choice" | "fill_blank" | "translate" | "listening";
+  type: "multiple_choice" | "fill_blank" | "translate" | "listening" | "reorder";
   prompt: string;
   choices: string[];
   correct: string;
   hint_sorani?: string;
   hint_badini?: string;
 };
+
+const EXERCISE_TYPE_OPTIONS = ["multiple_choice", "fill_blank", "translate", "listening", "reorder"] as const;
+
+const DEFAULT_REORDER_PROMPT = "Put the words in the correct order to rebuild the sentence.";
+
+// Default instruction text is only auto-filled for brand-new reorder
+// exercises — an admin who's already typed their own prompt keeps it.
+function blankExercise(type: WizardExercise["type"] = "multiple_choice"): WizardExercise {
+  return {
+    id: crypto.randomUUID(),
+    type,
+    prompt: type === "reorder" ? DEFAULT_REORDER_PROMPT : "",
+    choices: type === "multiple_choice" ? ["", ""] : [],
+    correct: "",
+  };
+}
 
 export type WizardLesson = {
   id?: string;
@@ -119,6 +136,7 @@ export function LessonWizard({ open, onOpenChange, course, syncCourseCard = fals
   const importPhoto = useServerFn(importPhotoToLibrary);
   const genImage = useServerFn(generateWordImage);
   const genAudio = useServerFn(generateWordAudio);
+  const genMeaning = useServerFn(generateWordMeaning);
 
   // Load / reset whenever the wizard opens.
   useEffect(() => {
@@ -182,7 +200,7 @@ export function LessonWizard({ open, onOpenChange, course, syncCourseCard = fals
     }
     const merged = [...steps, ...parsed.steps];
     setSteps(merged);
-    if (parsed.exercises.length > 0) setExercises((prev) => [...prev, ...parsed.exercises]);
+    if (parsed.exercises.length > 0) setExercises((prev) => [...prev, ...parsed.exercises.map((e) => ({ ...e, id: crypto.randomUUID() }))]);
     if (parsed.title && !titleEn.trim()) setTitleEn(parsed.title);
     setJsonDialogOpen(false);
     setJsonText("");
@@ -427,6 +445,7 @@ export function LessonWizard({ open, onOpenChange, course, syncCourseCard = fals
                   genImage={genImage}
                   genAudio={genAudio}
                   translate={translate}
+                  generateMeaning={genMeaning}
                 />
               </div>
             </div>
@@ -571,7 +590,7 @@ function WorkflowCanvas(props: {
   busy: string | null;
   setBusy: (v: string | null) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  searchPhotos: any; genImage: any; genAudio: any; importPhoto: any; translate: any;
+  searchPhotos: any; genImage: any; genAudio: any; importPhoto: any; translate: any; generateMeaning: any;
 }) {
   const { steps, setSteps, exercises, setExercises, onRemoveExercise } = props;
   const [selected, setSelected] = useState<Node | null>(null);
@@ -579,9 +598,20 @@ function WorkflowCanvas(props: {
   const [pan, setPan] = useState({ x: 30, y: 30 });
   const dragRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
 
+  // Exercises referenced by an inline `{ type: "exercise" }` step already
+  // have a spot in the walkthrough, so they're drawn as part of that step's
+  // node (see stepNodeTitle below) instead of getting their own separate
+  // node at the end — otherwise the same exercise would appear twice.
+  const inlineExerciseIds = new Set(
+    steps.filter((s): s is Extract<LessonStep, { type: "exercise" }> => s.type === "exercise").map((s) => s.exerciseId),
+  );
+  const standaloneExercises = exercises
+    .map((e, i) => ({ e, i }))
+    .filter(({ e }) => !e.id || !inlineExerciseIds.has(e.id));
+
   const nodes: Node[] = [
     ...steps.map((_, i) => ({ kind: "step" as const, index: i })),
-    ...exercises.map((_, i) => ({ kind: "exercise" as const, index: i })),
+    ...standaloneExercises.map(({ i }) => ({ kind: "exercise" as const, index: i })),
   ];
   const perRow = 5;
   const pos = (i: number) => ({ x: (i % perRow) * (NODE_W + GAP_X), y: Math.floor(i / perRow) * (NODE_H + 70) });
@@ -600,17 +630,89 @@ function WorkflowCanvas(props: {
     setSelected({ kind: "step", index: j });
   };
 
+  // Full delete: removes the exercise itself AND, if it's currently placed
+  // inline somewhere in the flow, the step marker pointing at it — otherwise
+  // that marker would dangle and the player would just skip over it, but
+  // it'd stick around cluttering the canvas.
+  const removeExerciseCompletely = (id?: string) => {
+    onRemoveExercise(id);
+    if (id) setSteps(steps.filter((s) => !(s.type === "exercise" && s.exerciseId === id)));
+  };
+
+  // Drops a *new* exercise into the flow at the end (from there the admin
+  // drags it into position with the same move arrows every other step
+  // uses), or pulls an inline one back out to standalone — see the toggle
+  // button in ExerciseInspector below.
+  const placeExerciseInline = (id: string) => setSteps([...steps, { type: "exercise", exerciseId: id }]);
+  const removeExerciseFromFlow = (id: string) => setSteps(steps.filter((s) => !(s.type === "exercise" && s.exerciseId === id)));
+
+  // Quick-insert: after every 3rd sentence step, adds a brand-new "reorder"
+  // exercise built from that sentence's own words and drops its marker
+  // right there in the flow — the exact "word, sentence, word, sentence,
+  // word, sentence, [rebuild it], word, sentence…" pattern in one click,
+  // rather than hand-placing each one.
+  const autoInsertSentenceBuilders = () => {
+    let sentenceCount = 0;
+    let added = 0;
+    const nextSteps: LessonStep[] = [];
+    const nextExercises = [...exercises];
+    for (const s of steps) {
+      nextSteps.push(s);
+      if (s.type === "sentence" && s.target.trim()) {
+        sentenceCount++;
+        if (sentenceCount % 3 === 0) {
+          const id = crypto.randomUUID();
+          nextExercises.push({
+            id,
+            type: "reorder",
+            prompt: DEFAULT_REORDER_PROMPT,
+            choices: [],
+            correct: s.target.trim(),
+            hint_sorani: s.kurdish_sorani || "",
+            hint_badini: s.kurdish_badini || "",
+          });
+          nextSteps.push({ type: "exercise", exerciseId: id });
+          added++;
+        }
+      }
+    }
+    if (added === 0) {
+      toast.info("Need at least 3 sentence steps for this — add more sentences first.");
+      return;
+    }
+    setSteps(nextSteps);
+    setExercises(nextExercises);
+    toast.success(`Added ${added} sentence-builder exercise${added === 1 ? "" : "s"} into the flow.`);
+  };
+
+  // Node label/icon for a step: word/sentence/image/tip read their own
+  // field, but a step that's really just a pointer at an exercise shows
+  // that exercise's own prompt instead (it has no `target` of its own).
+  const stepNodeTitle = (step: LessonStep): { meta: ReturnType<typeof nodeMeta>; title: string; img?: string } => {
+    if (step.type === "exercise") {
+      const ex = exercises.find((e) => e.id === step.exerciseId);
+      return { meta: nodeMeta("exercise"), title: ex?.prompt || (ex ? "Exercise" : "Exercise (missing)") };
+    }
+    const meta = nodeMeta(step.type);
+    const title = step.type === "tip" ? step.text : step.type === "image" ? (step.caption || "Image") : step.target;
+    const img = step.type === "image" ? step.url : (step as { image_url?: string }).image_url;
+    return { meta, title, img };
+  };
+
   return (
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-w-0 relative bg-[radial-gradient(circle,hsl(var(--muted-foreground)/0.25)_1px,transparent_1px)] [background-size:22px_22px] overflow-hidden">
-        <div className="absolute z-10 top-3 left-3 flex flex-wrap gap-2">
+        <div className="absolute z-10 top-3 left-3 flex flex-wrap gap-2 max-w-[calc(100%-7rem)]">
           {(["word", "sentence", "image", "tip"] as const).map((k) => (
-            <Button key={k} size="sm" variant="secondary" onClick={() => { setSteps([...steps, blankStep(k)]); setSelected({ kind: "step", index: steps.length }); }}>
+            <Button key={k} size="sm" variant="secondary" onClick={() => { setSteps([...steps, blankStep(k as BuildableStepType)]); setSelected({ kind: "step", index: steps.length }); }}>
               <Plus className="h-3.5 w-3.5 mr-1" /> {nodeMeta(k).label}
             </Button>
           ))}
-          <Button size="sm" variant="secondary" onClick={() => { setExercises([...exercises, { type: "multiple_choice", prompt: "", choices: ["", ""], correct: "" }]); setSelected({ kind: "exercise", index: exercises.length }); }}>
+          <Button size="sm" variant="secondary" onClick={() => { setExercises([...exercises, blankExercise()]); setSelected({ kind: "exercise", index: exercises.length }); }}>
             <Plus className="h-3.5 w-3.5 mr-1" /> Exercise
+          </Button>
+          <Button size="sm" variant="outline" onClick={autoInsertSentenceBuilders} title="After every 3rd sentence step, adds a sentence-builder exercise right there in the flow.">
+            <Shuffle className="h-3.5 w-3.5 mr-1" /> Sentence builder ×3
           </Button>
         </div>
         <div className="absolute z-10 top-3 right-3 flex gap-1">
@@ -647,12 +749,11 @@ function WorkflowCanvas(props: {
               const isStep = n.kind === "step";
               const step = isStep ? steps[n.index] : null;
               const ex = !isStep ? exercises[n.index] : null;
-              const meta = nodeMeta(isStep ? (step!.type as never) : "exercise");
+              const stepInfo = isStep ? stepNodeTitle(step!) : null;
+              const meta = isStep ? stepInfo!.meta : nodeMeta("exercise");
               const isSel = selected?.kind === n.kind && selected.index === n.index;
-              const title = isStep
-                ? step!.type === "tip" ? step!.text : step!.type === "image" ? (step!.caption || "Image") : (step as { target: string }).target
-                : ex!.prompt || "New exercise";
-              const img = isStep && step!.type === "image" ? step!.url : isStep ? (step as { image_url?: string }).image_url : undefined;
+              const title = isStep ? stepInfo!.title : ex!.prompt || "New exercise";
+              const img = isStep ? stepInfo!.img : undefined;
               return (
                 <button
                   key={`${n.kind}-${n.index}`}
@@ -700,6 +801,12 @@ function WorkflowCanvas(props: {
             genImage={props.genImage}
             genAudio={props.genAudio}
             translate={props.translate}
+            generateMeaning={props.generateMeaning}
+            exercises={exercises}
+            onOpenExercise={(exerciseId) => {
+              const exIdx = exercises.findIndex((e) => e.id === exerciseId);
+              if (exIdx >= 0) setSelected({ kind: "exercise", index: exIdx });
+            }}
             onChange={(patch) => updateStep(selected.index, patch)}
             onMove={(d) => moveStep(selected.index, d)}
             onDelete={() => { setSteps(steps.filter((_, i) => i !== selected.index)); setSelected(null); }}
@@ -708,11 +815,214 @@ function WorkflowCanvas(props: {
         {selected?.kind === "exercise" && exercises[selected.index] && (
           <ExerciseInspector
             value={exercises[selected.index]}
+            isInline={!!exercises[selected.index].id && inlineExerciseIds.has(exercises[selected.index].id!)}
+            onToggleInline={() => {
+              const id = exercises[selected.index].id;
+              if (!id) return;
+              if (inlineExerciseIds.has(id)) removeExerciseFromFlow(id);
+              else placeExerciseInline(id);
+            }}
             onChange={(v) => { const next = [...exercises]; next[selected.index] = v; setExercises(next); }}
-            onDelete={() => { onRemoveExercise(exercises[selected.index].id); setExercises(exercises.filter((_, i) => i !== selected.index)); setSelected(null); }}
+            onDelete={() => { removeExerciseCompletely(exercises[selected.index].id); setExercises(exercises.filter((_, i) => i !== selected.index)); setSelected(null); }}
           />
         )}
       </aside>
+    </div>
+  );
+}
+
+const POS_OPTIONS = ["noun", "verb", "adjective", "adverb", "phrase", "other"] as const;
+
+/**
+ * Same click-a-word-to-add-its-meaning interaction already used for video
+ * transcripts and book paragraphs, scoped to one lesson sentence step.
+ * Saved highlights live on the step itself (`step.highlights`, inside
+ * steps_json) — no extra table. Learners see these as tappable words with a
+ * translation popover as they read the sentence mid-lesson.
+ */
+function SentenceHighlighter({ target, highlights, onChange, sourceLanguage, generateMeaning }: {
+  target: string;
+  highlights: WordHighlight[];
+  onChange: (highlights: WordHighlight[]) => void;
+  sourceLanguage: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  generateMeaning: any;
+}) {
+  const words = tokenizeWords(target);
+  const [generating, setGenerating] = useState(false);
+  const [form, setForm] = useState<null | {
+    mode: "create" | "edit";
+    id?: string;
+    start_index: number;
+    end_index: number;
+    word: string;
+    part_of_speech: string;
+    meaning_en: string;
+    meaning_ku_sorani: string;
+    meaning_ku_badini: string;
+  }>(null);
+
+  const onGenerate = async () => {
+    if (!form) return;
+    const word = form.word.trim();
+    if (!word) { toast.error("Select a word first"); return; }
+    setGenerating(true);
+    try {
+      const res = await generateMeaning({ data: { source_language: sourceLanguage as never, word, context: target } });
+      setForm((f) => f && {
+        ...f,
+        part_of_speech: res.part_of_speech,
+        meaning_en: res.meaning_en || f.meaning_en,
+        meaning_ku_sorani: res.meaning_ku_sorani || f.meaning_ku_sorani,
+        meaning_ku_badini: res.meaning_ku_badini || f.meaning_ku_badini,
+      });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const findHighlightAt = (i: number) => highlights.find((h) => i >= h.start_index && i <= h.end_index);
+
+  const handleWordClick = (i: number, shiftKey: boolean) => {
+    if (shiftKey && form?.mode === "create") {
+      const start = Math.min(form.start_index, i);
+      const end = Math.max(form.end_index, i);
+      setForm({ ...form, start_index: start, end_index: end, word: words.slice(start, end + 1).join(" ") });
+      return;
+    }
+    const existing = findHighlightAt(i);
+    if (existing) {
+      setForm({
+        mode: "edit",
+        id: existing.id,
+        start_index: existing.start_index,
+        end_index: existing.end_index,
+        word: existing.word,
+        part_of_speech: existing.part_of_speech,
+        meaning_en: existing.meaning_en,
+        meaning_ku_sorani: existing.meaning_ku_sorani,
+        meaning_ku_badini: existing.meaning_ku_badini,
+      });
+      return;
+    }
+    setForm({
+      mode: "create",
+      start_index: i,
+      end_index: i,
+      word: words[i],
+      part_of_speech: "noun",
+      meaning_en: "",
+      meaning_ku_sorani: "",
+      meaning_ku_badini: "",
+    });
+  };
+
+  const saveForm = () => {
+    if (!form) return;
+    const word = form.word.trim();
+    if (!word) { toast.error("Select a word first"); return; }
+    const id = form.mode === "edit" && form.id ? form.id : crypto.randomUUID();
+    const next: WordHighlight = {
+      id,
+      start_index: form.start_index,
+      end_index: form.end_index,
+      word,
+      part_of_speech: form.part_of_speech,
+      meaning_en: form.meaning_en.trim(),
+      meaning_ku_sorani: form.meaning_ku_sorani.trim(),
+      meaning_ku_badini: form.meaning_ku_badini.trim(),
+    };
+    // drop any prior highlight with the same id, and any others that would overlap the new range
+    const withoutOverlap = highlights.filter(
+      (h) => h.id !== id && (h.end_index < next.start_index || h.start_index > next.end_index),
+    );
+    onChange([...withoutOverlap, next].sort((a, b) => a.start_index - b.start_index));
+    setForm(null);
+  };
+
+  const deleteForm = () => {
+    if (!form?.id) return;
+    onChange(highlights.filter((h) => h.id !== form.id));
+    setForm(null);
+  };
+
+  if (words.length === 0) return null;
+
+  return (
+    <div className="rounded-md border border-dashed p-3 bg-background/50 grid gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs">Highlighted words</Label>
+        {highlights.length === 0 && <span className="text-[11px] text-muted-foreground">No highlighted words yet</span>}
+      </div>
+      <p className="text-[11px] text-muted-foreground">Click a word to add its Kurdish meaning. Shift-click another word to select a phrase.</p>
+      <div dir="ltr" className="text-sm leading-8">
+        {words.map((w, i) => {
+          const hl = findHighlightAt(i);
+          const pending = form?.mode === "create" && i >= form.start_index && i <= form.end_index;
+          return (
+            <span
+              key={i}
+              onClick={(e) => handleWordClick(i, e.shiftKey)}
+              className={cn(
+                "cursor-pointer rounded px-0.5 py-0.5 mr-1 inline-block select-none",
+                hl && "bg-amber-300/60 dark:bg-amber-500/30 underline decoration-dotted",
+                pending && !hl && "bg-primary/25",
+                !hl && !pending && "hover:bg-muted",
+              )}
+              title={hl?.meaning_en || undefined}
+            >
+              {w}
+            </span>
+          );
+        })}
+      </div>
+      {form && (
+        <div className="rounded-md border p-3 grid gap-2 bg-muted/40">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs text-muted-foreground">
+              Selected: <span className="font-medium text-foreground" dir="ltr">{form.word}</span>
+            </div>
+            <Button type="button" size="sm" variant="secondary" onClick={onGenerate} disabled={generating}>
+              {generating ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
+              {generating ? "Generating…" : "Generate"}
+            </Button>
+          </div>
+          <div>
+            <Label className="text-xs">Part of speech</Label>
+            <Select value={form.part_of_speech} onValueChange={(v) => setForm({ ...form, part_of_speech: v })}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {POS_OPTIONS.map((p) => (
+                  <SelectItem key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Meaning (English)</Label>
+            <Input className="h-8" dir="ltr" value={form.meaning_en} onChange={(e) => setForm({ ...form, meaning_en: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs">Meaning (Kurdish) · Sorani</Label>
+              <Input className="h-8" dir="rtl" value={form.meaning_ku_sorani} onChange={(e) => setForm({ ...form, meaning_ku_sorani: e.target.value })} />
+            </div>
+            <div>
+              <Label className="text-xs">Meaning (Kurdish) · Badini</Label>
+              <Input className="h-8" dir="rtl" value={form.meaning_ku_badini} onChange={(e) => setForm({ ...form, meaning_ku_badini: e.target.value })} />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            {form.mode === "edit" && (
+              <Button type="button" size="sm" variant="destructive" onClick={deleteForm}>Remove</Button>
+            )}
+            <Button type="button" size="sm" variant="outline" onClick={() => setForm(null)}>Cancel</Button>
+            <Button type="button" size="sm" onClick={saveForm}>Save</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -725,8 +1035,10 @@ function StepInspector(props: {
   lang: string;
   busy: string | null;
   setBusy: (v: string | null) => void;
+  exercises: WizardExercise[];
+  onOpenExercise: (exerciseId: string) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  searchPhotos: any; importPhoto: any; genImage: any; genAudio: any; translate: any;
+  searchPhotos: any; importPhoto: any; genImage: any; genAudio: any; translate: any; generateMeaning: any;
   onChange: (patch: Record<string, unknown>) => void;
   onMove: (dir: -1 | 1) => void;
   onDelete: () => void;
@@ -741,6 +1053,33 @@ function StepInspector(props: {
 
   const isText = step.type === "word" || step.type === "sentence";
   const target = isText ? step.target : "";
+
+  if (step.type === "exercise") {
+    const ex = props.exercises.find((e) => e.id === step.exerciseId);
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium">Exercise (inline) · step {props.index + 1}</p>
+          <div className="flex gap-1">
+            <Button size="icon" variant="ghost" onClick={() => props.onMove(-1)} disabled={props.index === 0}><ArrowLeft className="h-4 w-4" /></Button>
+            <Button size="icon" variant="ghost" onClick={() => props.onMove(1)} disabled={props.index === props.total - 1}><ArrowRight className="h-4 w-4" /></Button>
+            <Button size="icon" variant="ghost" onClick={props.onDelete} title="Remove from this position — the exercise itself stays, moved to the end"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Learners hit this exercise right here in the walkthrough, between the steps around it, instead of waiting for the very end.
+        </p>
+        <div className="rounded-md border p-3 bg-muted/30">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">{ex ? ex.type.replace("_", " ") : "missing"}</p>
+          <p className="text-sm" dir="ltr">{ex?.prompt || <span className="text-muted-foreground">No prompt yet</span>}</p>
+        </div>
+        <Button size="sm" variant="outline" className="w-full" disabled={!ex} onClick={() => props.onOpenExercise(step.exerciseId)}>
+          <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Edit exercise content
+        </Button>
+        <p className="text-xs text-muted-foreground">Use the arrows above to move this exercise earlier or later in the flow.</p>
+      </div>
+    );
+  }
 
   const runSearch = async (q: string) => {
     setSearching(true);
@@ -855,6 +1194,16 @@ function StepInspector(props: {
               {step.audio_url && <Button size="sm" variant="ghost" onClick={() => onChange({ audio_url: "" })}><X className="h-4 w-4 mr-1" /> Remove</Button>}
             </div>
           </div>
+
+          {step.type === "sentence" && (
+            <SentenceHighlighter
+              target={step.target}
+              highlights={step.highlights ?? []}
+              onChange={(highlights) => onChange({ highlights })}
+              sourceLanguage={props.lang}
+              generateMeaning={props.generateMeaning}
+            />
+          )}
         </>
       )}
 
@@ -882,23 +1231,57 @@ function StepInspector(props: {
   );
 }
 
-function ExerciseInspector({ value, onChange, onDelete }: {
+function ExerciseInspector({ value, onChange, onDelete, isInline, onToggleInline }: {
   value: WizardExercise;
   onChange: (v: WizardExercise) => void;
   onDelete: () => void;
+  isInline: boolean;
+  onToggleInline: () => void;
 }) {
+  const preview = useMemo(() => {
+    const tokens = tokenizeWords(value.correct);
+    const shuffled = [...tokens];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.correct, value.type]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium">Exercise</p>
         <Button size="icon" variant="ghost" onClick={onDelete}><Trash2 className="h-4 w-4 text-destructive" /></Button>
       </div>
+
+      <div className="rounded-md border p-2.5 flex items-center justify-between gap-2 bg-muted/30">
+        <p className="text-xs text-muted-foreground">
+          {isInline ? "Placed inline, right in the lesson flow." : "Runs at the end, after all the steps (default)."}
+        </p>
+        <Button size="sm" variant="outline" className="shrink-0" onClick={onToggleInline} disabled={!value.id}>
+          {isInline ? <>Move to end</> : <>Insert into flow</>}
+        </Button>
+      </div>
+
       <div>
         <Label>Type</Label>
-        <Select value={value.type} onValueChange={(v) => onChange({ ...value, type: v as WizardExercise["type"] })}>
+        <Select
+          value={value.type}
+          onValueChange={(v) => {
+            const nextType = v as WizardExercise["type"];
+            const promptWasDefault = !value.prompt.trim() || value.prompt === DEFAULT_REORDER_PROMPT;
+            onChange({
+              ...value,
+              type: nextType,
+              prompt: nextType === "reorder" && promptWasDefault ? DEFAULT_REORDER_PROMPT : value.prompt,
+            });
+          }}
+        >
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
-            {(["multiple_choice", "fill_blank", "translate", "listening"] as const).map((t) => <SelectItem key={t} value={t}>{t.replace("_", " ")}</SelectItem>)}
+            {EXERCISE_TYPE_OPTIONS.map((t) => <SelectItem key={t} value={t}>{t.replace("_", " ")}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -915,7 +1298,22 @@ function ExerciseInspector({ value, onChange, onDelete }: {
           <Button size="sm" variant="outline" onClick={() => onChange({ ...value, choices: [...value.choices, ""] })}><Plus className="h-4 w-4 mr-1" /> Add choice</Button>
         </div>
       )}
-      <div><Label>Correct answer</Label><Input dir="ltr" value={value.correct} onChange={(e) => onChange({ ...value, correct: e.target.value })} /></div>
+      {value.type === "reorder" ? (
+        <div className="space-y-2">
+          <Label>Sentence to rebuild</Label>
+          <Textarea rows={2} dir="ltr" value={value.correct} onChange={(e) => onChange({ ...value, correct: e.target.value })} placeholder="e.g. I would like a cup of coffee." />
+          <p className="text-[11px] text-muted-foreground">Learners see this sentence's own words shuffled and tap them back into this exact order.</p>
+          {preview.length > 1 && (
+            <div dir="ltr" className="flex flex-wrap gap-1.5 rounded-md border border-dashed p-2 bg-muted/30">
+              {preview.map((w, i) => (
+                <span key={i} className="rounded-md border bg-background px-2 py-0.5 text-xs">{w}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div><Label>Correct answer</Label><Input dir="ltr" value={value.correct} onChange={(e) => onChange({ ...value, correct: e.target.value })} /></div>
+      )}
       <div><Label>Hint (Sorani)</Label><Input dir="rtl" value={value.hint_sorani ?? ""} onChange={(e) => onChange({ ...value, hint_sorani: e.target.value })} /></div>
       <div><Label>Hint (Badini)</Label><Input dir="rtl" value={value.hint_badini ?? ""} onChange={(e) => onChange({ ...value, hint_badini: e.target.value })} /></div>
     </div>
