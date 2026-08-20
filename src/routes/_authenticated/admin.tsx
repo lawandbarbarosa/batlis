@@ -48,7 +48,7 @@ import { BannerEditorDialog } from "@/components/banner-editor";
 import { extractPdfBook } from "@/lib/pdf-import";
 import { hashText } from "@/lib/text-audio";
 import { LessonWizard, type WizardLesson } from "@/components/lesson-wizard";
-import { type LessonStep, blankStep, blockContentToSteps, type ImportSummary, JSON_STEPS_EXAMPLE, BLOCK_IMPORT_EXAMPLE } from "@/lib/lesson-steps";
+import { type LessonStep, type BuildableStepType, blankStep, blockContentToSteps, type ImportSummary, JSON_STEPS_EXAMPLE, BLOCK_IMPORT_EXAMPLE } from "@/lib/lesson-steps";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   ssr: false,
@@ -548,7 +548,7 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
     [next[i], next[j]] = [next[j], next[i]];
     onChange(next);
   };
-  const add = (type: LessonStep["type"]) => onChange([...steps, blankStep(type)]);
+  const add = (type: BuildableStepType) => onChange([...steps, blankStep(type)]);
 
   const isWordOrSentence = (s: LessonStep): s is Extract<LessonStep, { type: "word" | "sentence" }> =>
     s.type === "word" || s.type === "sentence";
@@ -836,6 +836,13 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
                       <Input dir="ltr" placeholder="Image URL (optional)" value={s.image_url ?? ""} onChange={(e) => update(i, { image_url: e.target.value })} />
                     </div>
                   </div>
+                  {s.type === "sentence" && (
+                    <LineHighlighter
+                      line={{ en: s.target, highlights: s.highlights ?? [] }}
+                      onChange={(highlights) => update(i, { highlights })}
+                      sourceLanguage={sourceLanguage}
+                    />
+                  )}
                 </div>
               )}
               {s.type === "image" && (
@@ -846,6 +853,11 @@ function LessonStepsEditor({ value, onChange, sourceLanguage, courseId }: { valu
               )}
               {s.type === "tip" && (
                 <Textarea placeholder="A short note or grammar aside" value={s.text} onChange={(e) => update(i, { text: e.target.value })} />
+              )}
+              {s.type === "exercise" && (
+                <p className="text-xs text-muted-foreground italic">
+                  This step runs one of the lesson's exercises inline. Edit its content and flow position from the lesson builder.
+                </p>
               )}
             </div>
           ))}
