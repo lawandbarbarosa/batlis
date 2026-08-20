@@ -2,16 +2,43 @@
 // editor and (in shape) the learner lesson player. Kept out of the route file
 // so both the wizard component and the admin page work from one definition.
 
+// A single highlighted word/phrase inside a sentence step's target text —
+// same shape as the highlight tool already used for video transcripts and
+// book paragraphs (see admin.tsx's WordHighlight), reused here so a sentence
+// a learner sees mid-lesson can carry the same tap-for-translation behavior.
+export type WordHighlight = { id: string; start_index: number; end_index: number; word: string; part_of_speech: string; meaning_en: string; meaning_ku_sorani: string; meaning_ku_badini: string };
+
 export type LessonStep =
   | { type: "word"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string; image_url?: string }
-  | { type: "sentence"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string; image_url?: string }
+  | { type: "sentence"; target: string; kurdish_sorani?: string; kurdish_badini?: string; audio_url?: string; image_url?: string; highlights?: WordHighlight[] }
   | { type: "image"; url: string; caption?: string }
-  | { type: "tip"; text: string };
+  | { type: "tip"; text: string }
+  // A placeholder that runs one of the lesson's exercises at this exact spot
+  // in the walkthrough, instead of every exercise waiting until the very
+  // end. `exerciseId` points at a row in lesson_exercises (same table the
+  // trailing quiz already reads from) — this step carries no content of its
+  // own. Any exercise never referenced by one of these is simply appended
+  // after the last step, which is exactly the old (and still default)
+  // behavior, so lessons saved before this existed keep working unchanged.
+  | { type: "exercise"; exerciseId: string };
 
-export function blankStep(type: LessonStep["type"]): LessonStep {
+// The subset of step kinds that can be freely created from a toolbar button
+// with sensible blank defaults. "exercise" steps are always created
+// alongside a real exercise record (see the lesson wizard), never blank.
+export type BuildableStepType = Exclude<LessonStep["type"], "exercise">;
+
+export function blankStep(type: BuildableStepType): LessonStep {
   if (type === "word" || type === "sentence") return { type, target: "", kurdish_sorani: "", kurdish_badini: "", audio_url: "", image_url: "" };
   if (type === "image") return { type, url: "", caption: "" };
   return { type, text: "" };
+}
+
+// Simple whitespace tokenizer shared by the sentence highlighter and the
+// "reorder" exercise (which shuffles a sentence's own tokens). Punctuation
+// stays attached to whichever word it trails, matching how the highlighter
+// already indexes words elsewhere in the app.
+export function tokenizeWords(text?: string): string[] {
+  return (text || "").split(/\s+/).filter(Boolean);
 }
 
 export const JSON_STEPS_EXAMPLE = `[
@@ -35,7 +62,11 @@ export const BLOCK_IMPORT_EXAMPLE = `{
 
 export type ImportSummary = { words: number; sentences: number; images: number; tips: number; exercises: number; assetWarnings: number; skipped: Record<string, number> };
 
-export type ExerciseType = "multiple_choice" | "fill_blank" | "translate" | "listening";
+// "reorder" is the sentence-builder exercise: the learner is shown a
+// shuffled sentence (its own words, tokenized via tokenizeWords) and has to
+// tap them back into the correct order. `correct` on this type holds the
+// full, correctly-ordered sentence — there's no separate "choices" field.
+export type ExerciseType = "multiple_choice" | "fill_blank" | "translate" | "listening" | "reorder";
 // The exercise shape a JSON import can produce — a plain-data twin of
 // WizardExercise (which also carries an `id` once saved), kept here so
 // this file has no dependency on the wizard component.
