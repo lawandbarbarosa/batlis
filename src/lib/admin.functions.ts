@@ -256,6 +256,17 @@ export const adminDeleteCourse = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+const wordHighlightSchema = z.object({
+  id: z.string(),
+  start_index: z.number().int().min(0),
+  end_index: z.number().int().min(0),
+  word: z.string().max(200),
+  part_of_speech: z.string().max(50),
+  meaning_en: z.string().max(300),
+  meaning_ku_sorani: z.string().max(300),
+  meaning_ku_badini: z.string().max(300),
+});
+
 const lessonStepSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("word"),
@@ -272,6 +283,7 @@ const lessonStepSchema = z.discriminatedUnion("type", [
     kurdish_badini: z.string().max(500).optional(),
     audio_url: z.string().max(500).optional().or(z.literal("")),
     image_url: z.string().max(500).optional().or(z.literal("")),
+    highlights: z.array(wordHighlightSchema).optional(),
   }),
   z.object({
     type: z.literal("image"),
@@ -281,6 +293,12 @@ const lessonStepSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("tip"),
     text: z.string().min(1).max(1000),
+  }),
+  // Runs one of the lesson's own exercises at this point in the walkthrough
+  // instead of leaving it for the trailing quiz — see lesson-steps.ts.
+  z.object({
+    type: z.literal("exercise"),
+    exerciseId: z.string().uuid(),
   }),
 ]);
 
@@ -334,7 +352,7 @@ export const adminUpsertExercise = createServerFn({ method: "POST" })
       id: z.string().uuid().optional(),
       lesson_id: z.string().uuid(),
       order_index: z.number().int().min(0),
-      type: z.enum(["multiple_choice", "fill_blank", "translate", "listening"]),
+      type: z.enum(["multiple_choice", "fill_blank", "translate", "listening", "reorder"]),
       prompt_json: z.record(z.string(), z.unknown()),
       answer_json: z.record(z.string(), z.unknown()),
     }).parse(d),
