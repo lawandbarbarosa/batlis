@@ -11,7 +11,6 @@ import {
   Target,
   PlayCircle,
   Sparkles,
-  Mic,
   Library,
   Languages,
   Accessibility,
@@ -77,11 +76,6 @@ function Landing() {
       icon: <Sparkles className="h-6 w-6" />,
       title: t("feature_vocab_title"),
       desc: t("feature_vocab_desc"),
-    },
-    {
-      icon: <Mic className="h-6 w-6" />,
-      title: t("feature_speak_title"),
-      desc: t("feature_speak_desc"),
     },
     {
       icon: <Library className="h-6 w-6" />,
