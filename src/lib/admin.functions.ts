@@ -6,6 +6,29 @@ const langEnum = z.enum(["en", "de", "ar", "ko"]);
 const cefrEnum = z.enum(["A1", "A2", "B1", "B2", "C1", "C2"]);
 const videoCategoryEnum = z.enum(["podcast", "animation", "movie", "show", "talking", "music", "documentary", "news", "other"]);
 
+// ---- Grade 12 English (KRG curriculum companion) ----
+const grade12VocabWordSchema = z.object({
+  word: z.string().min(1).max(80),
+  pos: z.string().min(1).max(20),
+  meaning_en: z.string().min(1).max(300),
+  sorani: z.string().min(1).max(200),
+  badini: z.string().max(200).optional().or(z.literal("")),
+  example: z.string().min(1).max(400),
+});
+const grade12QuizQuestionSchema = z.object({
+  id: z.string().min(1).max(60),
+  prompt: z.string().min(1).max(500),
+  choices: z.array(z.string().min(1).max(300)).min(2).max(6),
+  correctIndex: z.number().int().min(0),
+});
+const grade12GrammarSchema = z.object({
+  name_en: z.string().min(1).max(200),
+  name_sorani: z.string().min(1).max(200),
+  name_badini: z.string().max(200).optional().or(z.literal("")),
+  explanation: z.string().min(1).max(2000),
+  examples: z.array(z.string().min(1).max(400)).min(1).max(10),
+});
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function assertAdmin(context: any) {
   const { data, error } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
@@ -1064,25 +1087,6 @@ export const adminSetUserRole = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/* -------------------- ELEVENLABS -------------------- */
-export const getElevenLabsToken = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ agentId: z.string().min(1).max(100) }).parse(d))
-  .handler(async ({ data }) => {
-    const apiKey = process.env.ELEVENLABS_API_KEY;
-    if (!apiKey) throw new Error("ElevenLabs is not connected");
-    const res = await fetch(
-      `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${encodeURIComponent(data.agentId)}`,
-      { headers: { "xi-api-key": apiKey } },
-    );
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`ElevenLabs token error [${res.status}]: ${body}`);
-    }
-    const json = (await res.json()) as { token: string };
-    return { token: json.token };
-  });
-
 /* -------------------- TEXT-TO-SPEECH FOR LESSON WORDS -------------------- */
 // Generates a real spoken recording (ElevenLabs) for an English word or
 // sentence in a lesson and stores it in the public lesson-assets bucket, so
@@ -1126,4 +1130,104 @@ export const generateWordAudio = createServerFn({ method: "POST" })
     if (error) throw new Error(`Could not save the audio: ${error.message}`);
     const { data: pub } = context.supabase.storage.from("lesson-assets").getPublicUrl(path);
     return { url: pub.publicUrl };
+  });
+
+/* -------------------- GRADE 12 ENGLISH (KRG curriculum companion) -------------------- */
+export const adminListGrade12Units = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const { data: units, error } = await context.supabase.from("grade12_units").select("*").order("number");
+    if (error) throw new Error(error.message);
+    return { units: units ?? [] };
+  });
+
+export const adminUpsertGrade12Unit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid().optional(),
+        number: z.number().int().min(1).max(999),
+        title_en: z.string().min(1).max(200),
+        title_sorani: z.string().min(1).max(200),
+        title_badini: z.string().max(200).optional().or(z.literal("")),
+        theme_en: z.string().min(1).max(500),
+        theme_sorani: z.string().min(1).max(500),
+        theme_badini: z.string().max(500).optional().or(z.literal("")),
+        grammar_json: grade12GrammarSchema,
+        vocabulary_json: z.array(grade12VocabWordSchema).min(1).max(20),
+        reading_title: z.string().min(1).max(200),
+        reading_passage: z.string().min(1).max(4000),
+        quiz_json: z.array(grade12QuizQuestionSchema).min(1).max(20),
+        writing_prompt: z.string().min(1).max(1000),
+      })
+      .parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context);
+    const payload = {
+      ...data,
+      title_badini: data.title_badini || null,
+      theme_badini: data.theme_badini || null,
+    };
+    const { data: saved, error } = await context.supabase
+      .from("grade12_units")
+      .upsert(payload as any)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return { unit: saved };
+  });
+
+export const adminDeleteGrade12Unit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context);
+    const { error } = await context.supabase.from("grade12_units").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const adminListGrade12Tips = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const { data: tips, error } = await context.supabase.from("grade12_exam_tips").select("*").order("order_index");
+    if (error) throw new Error(error.message);
+    return { tips: tips ?? [] };
+  });
+
+export const adminUpsertGrade12Tip = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid().optional(),
+        order_index: z.number().int().min(0).max(999),
+        tip_en: z.string().min(1).max(500),
+        tip_sorani: z.string().min(1).max(500),
+      })
+      .parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context);
+    const { data: saved, error } = await context.supabase
+      .from("grade12_exam_tips")
+      .upsert(data as any)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return { tip: saved };
+  });
+
+export const adminDeleteGrade12Tip = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context);
+    const { error } = await context.supabase.from("grade12_exam_tips").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
