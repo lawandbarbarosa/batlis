@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FlagIcon } from "@/components/flag-icon";
 import { ForwardArrow } from "@/components/dir-arrow";
-import { Loader2, Flame, Trophy, BookOpen, PlayCircle, Library, Target, Sparkles } from "lucide-react";
+import { Loader2, Flame, Trophy, BookOpen, PlayCircle, Library, Target, Sparkles, GraduationCap } from "lucide-react";
 
 // Languages with real authored lesson/vocab/video content. Everything else in
 // the `languages` table still shows up in the switcher, just muted and
@@ -211,6 +211,15 @@ function Dashboard() {
             <div className="mt-1 font-display text-xl font-semibold">{t("book_practice")}</div>
           </div>
           <Library className="h-8 w-8 text-primary-ink" />
+        </Link>
+
+        {/* Grade 12 English quick access */}
+        <Link to="/grade-12" className="lg:col-span-2 bento-card p-6 flex items-start justify-between hover:bg-accent/40 transition-colors">
+          <div>
+            <div className="text-xs uppercase tracking-wider text-muted-foreground">{t("nav_grade12")}</div>
+            <div className="mt-1 font-display text-xl font-semibold">{t("grade12_title")}</div>
+          </div>
+          <GraduationCap className="h-8 w-8 text-primary-ink" />
         </Link>
       </div>
     </AppShell>
