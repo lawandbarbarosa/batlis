@@ -1,11 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useDialect, type Dialect } from "@/hooks/use-dialect";
+import { supabase } from "@/integrations/supabase/client";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Button } from "@/components/ui/button";
-import { GRADE12_UNITS, GRADE12_EXAM_TIPS, type Grade12Unit } from "@/data/grade12-curriculum";
-import { BookOpen, CheckCircle2, PenLine, Lightbulb, GraduationCap } from "lucide-react";
+import type { Grade12Unit } from "@/data/grade12-curriculum";
+import { BookOpen, CheckCircle2, PenLine, Lightbulb, GraduationCap, Loader2 } from "lucide-react";
 
 /**
  * Public study companion for KRG (Kurdistan Region Government) Grade 12
@@ -15,21 +17,105 @@ import { BookOpen, CheckCircle2, PenLine, Lightbulb, GraduationCap } from "lucid
  * no backend calls; all content and grading run entirely client-side.
  */
 export const Route = createFileRoute("/grade-12")({
+  ssr: false,
   component: Grade12Page,
 });
+
+interface Grade12UnitRow {
+  id: string;
+  number: number;
+  title_en: string;
+  title_sorani: string;
+  title_badini: string | null;
+  theme_en: string;
+  theme_sorani: string;
+  theme_badini: string | null;
+  grammar_json: unknown;
+  vocabulary_json: unknown;
+  reading_title: string;
+  reading_passage: string;
+  quiz_json: unknown;
+  writing_prompt: string;
+}
+
+function rowToUnit(row: Grade12UnitRow): Grade12Unit {
+  const grammar = (row.grammar_json ?? {}) as Grade12Unit["grammar"];
+  return {
+    id: row.id,
+    number: row.number,
+    title_en: row.title_en,
+    title_sorani: row.title_sorani,
+    title_badini: row.title_badini ?? undefined,
+    theme_en: row.theme_en,
+    theme_sorani: row.theme_sorani,
+    theme_badini: row.theme_badini ?? undefined,
+    grammar: {
+      name_en: grammar.name_en ?? "",
+      name_sorani: grammar.name_sorani ?? "",
+      name_badini: grammar.name_badini || undefined,
+      explanation: grammar.explanation ?? "",
+      examples: Array.isArray(grammar.examples) ? grammar.examples : [],
+    },
+    vocabulary: Array.isArray(row.vocabulary_json) ? (row.vocabulary_json as Grade12Unit["vocabulary"]) : [],
+    reading: { title: row.reading_title, passage: row.reading_passage },
+    quiz: Array.isArray(row.quiz_json) ? (row.quiz_json as Grade12Unit["quiz"]) : [],
+    writingPrompt: row.writing_prompt,
+  };
+}
 
 function Grade12Page() {
   const { t, dialect } = useDialect();
   const dir = dialect === "english" ? "ltr" : "rtl";
 
-  const [selectedUnitId, setSelectedUnitId] = useState(GRADE12_UNITS[0].id);
+  const unitsQ = useQuery({
+    queryKey: ["grade12-units"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("grade12_units").select("*").order("number");
+      if (error) throw new Error(error.message);
+      return (data ?? []).map(rowToUnit);
+    },
+  });
+  const tipsQ = useQuery({
+    queryKey: ["grade12-tips"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("grade12_exam_tips").select("*").order("order_index");
+      if (error) throw new Error(error.message);
+      return (data ?? []).map((row) => ({ en: row.tip_en, sorani: row.tip_sorani }));
+    },
+  });
+
+  const units = unitsQ.data ?? [];
+  const tips = tipsQ.data ?? [];
+
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
   const [checkedUnits, setCheckedUnits] = useState<Record<string, boolean>>({});
 
-  const unit = useMemo(
-    () => GRADE12_UNITS.find((u) => u.id === selectedUnitId) ?? GRADE12_UNITS[0],
-    [selectedUnitId],
-  );
+  const unit = units.find((u) => u.id === selectedUnitId) ?? units[0];
+
+  if (unitsQ.isLoading || tipsQ.isLoading) {
+    return (
+      <div dir={dir} className="min-h-screen">
+        <SiteHeader />
+        <div className="flex justify-center py-32">
+          <Loader2 className="h-6 w-6 animate-spin text-primary-ink" />
+        </div>
+        <SiteFooter />
+      </div>
+    );
+  }
+
+  if (!unit) {
+    return (
+      <div dir={dir} className="min-h-screen">
+        <SiteHeader />
+        <div className="mx-auto max-w-2xl px-4 sm:px-6 py-32 text-center text-muted-foreground">
+          {t("no_data")}
+        </div>
+        <SiteFooter />
+      </div>
+    );
+  }
 
   const title =
     dialect === "badini"
@@ -98,7 +184,7 @@ function Grade12Page() {
       <section className="mx-auto max-w-6xl px-4 sm:px-6 pb-16">
         {/* Unit picker: horizontal chips on small screens, sidebar on large */}
         <div className="flex gap-2 overflow-x-auto pb-1 mb-6 lg:hidden">
-          {GRADE12_UNITS.map((u) => (
+          {units.map((u) => (
             <UnitPill
               key={u.id}
               unit={u}
@@ -114,7 +200,7 @@ function Grade12Page() {
             <div className="text-xs uppercase tracking-wider text-muted-foreground px-1 mb-1">
               {t("grade12_units_label")}
             </div>
-            {GRADE12_UNITS.map((u) => (
+            {units.map((u) => (
               <UnitPill
                 key={u.id}
                 unit={u}
@@ -283,7 +369,7 @@ function Grade12Page() {
           {t("grade12_exam_tips_title")}
         </h2>
         <div className="grid sm:grid-cols-2 gap-4">
-          {GRADE12_EXAM_TIPS.map((tip, i) => {
+          {tips.map((tip, i) => {
             const text = dialect === "english" ? tip.en : tip.sorani;
             return (
               <div key={i} className="bento-card p-5 flex gap-3">
