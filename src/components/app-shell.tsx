@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useDialect } from "@/hooks/use-dialect";
 import { DialectToggle } from "@/components/dialect-toggle";
 import { Button } from "@/components/ui/button";
-import { Sparkles, LayoutDashboard, BookOpen, PlayCircle, Library, Settings, LogOut, Mic, Shield, Menu } from "lucide-react";
+import { Sparkles, LayoutDashboard, BookOpen, PlayCircle, Library, Settings, LogOut, GraduationCap, Shield, Menu } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetClose } from "@/components/ui/sheet";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -53,7 +53,7 @@ export function AppShell({ children, activeLang, showEmail = false }: Props) {
           { to: `/books/${activeLang}`, label: t("books"), icon: Library },
         ]
       : []),
-    { to: "/speak", label: t("speak"), icon: Mic },
+    { to: "/grade-12", label: t("nav_grade12"), icon: GraduationCap },
     ...(isAdmin ? [{ to: "/admin", label: t("admin"), icon: Shield }] : []),
   ];
 
