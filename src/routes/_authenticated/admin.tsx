@@ -42,6 +42,12 @@ import {
   searchWordPhotos,
   importPhotoToLibrary,
   transcribeBookAudio,
+  adminListGrade12Units,
+  adminUpsertGrade12Unit,
+  adminDeleteGrade12Unit,
+  adminListGrade12Tips,
+  adminUpsertGrade12Tip,
+  adminDeleteGrade12Tip,
 } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { BannerEditorDialog } from "@/components/banner-editor";
@@ -59,7 +65,7 @@ export const Route = createFileRoute("/_authenticated/admin")({
   component: AdminPage,
 });
 
-type Tab = "lessons" | "vocab" | "videos" | "books" | "highlights" | "users";
+type Tab = "lessons" | "vocab" | "grade12" | "videos" | "books" | "highlights" | "users";
 const LANGS = ["en", "de", "ar", "ko"] as const;
 const CEFRS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
 const VIDEO_CATEGORIES = ["podcast", "animation", "movie", "show", "talking", "music", "documentary", "news", "other"] as const;
@@ -73,7 +79,7 @@ function AdminPage() {
         <h1 className="text-3xl font-display font-bold">{t("admin")}</h1>
       </div>
       <div className="mb-6 flex gap-2 flex-wrap">
-        {(["lessons", "vocab", "videos", "books", "highlights", "users"] as Tab[]).map((v) => (
+        {(["lessons", "vocab", "grade12", "videos", "books", "highlights", "users"] as Tab[]).map((v) => (
           <Button key={v} variant={tab === v ? "default" : "outline"} onClick={() => setTab(v)}>
             {t(`admin_${v}` as never)}
           </Button>
@@ -81,6 +87,7 @@ function AdminPage() {
       </div>
       {tab === "lessons" && <LessonsTab />}
       {tab === "vocab" && <VocabTab />}
+      {tab === "grade12" && <Grade12Tab />}
       {tab === "videos" && <VideosTab />}
       {tab === "books" && <BooksTab />}
       {tab === "highlights" && <HighlightsTab />}
@@ -1065,6 +1072,511 @@ function VocabForm({ value, onChange }: { value: Record<string, unknown>; onChan
         <div><Label>Example (Badini)</Label><Input value={(value.example_badini ?? "") as string} onChange={(e) => set("example_badini", e.target.value)} /></div>
       </div>
       <div><Label>Audio URL</Label><Input value={(value.audio_url ?? "") as string} onChange={(e) => set("audio_url", e.target.value)} /></div>
+    </div>
+  );
+}
+
+function Grade12Tab() {
+  const { t } = useDialect();
+  const qc = useQueryClient();
+  const listUnits = useServerFn(adminListGrade12Units);
+  const upsertUnit = useServerFn(adminUpsertGrade12Unit);
+  const deleteUnit = useServerFn(adminDeleteGrade12Unit);
+  const listTips = useServerFn(adminListGrade12Tips);
+  const upsertTip = useServerFn(adminUpsertGrade12Tip);
+  const deleteTip = useServerFn(adminDeleteGrade12Tip);
+
+  const unitsQ = useQuery({ queryKey: ["admin-grade12-units"], queryFn: () => listUnits({}) });
+  const tipsQ = useQuery({ queryKey: ["admin-grade12-tips"], queryFn: () => listTips({}) });
+
+  const [editingUnit, setEditingUnit] = useState<null | Record<string, unknown>>(null);
+  const [unitOpen, setUnitOpen] = useState(false);
+  const [editingTip, setEditingTip] = useState<null | Record<string, unknown>>(null);
+  const [tipOpen, setTipOpen] = useState(false);
+
+  const saveUnit = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => upsertUnit({ data: payload as never }),
+    onSuccess: () => {
+      toast.success(t("saved"));
+      qc.invalidateQueries({ queryKey: ["admin-grade12-units"] });
+      setUnitOpen(false);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const removeUnit = useMutation({
+    mutationFn: async (id: string) => deleteUnit({ data: { id } }),
+    onSuccess: () => {
+      toast.success(t("deleted"));
+      qc.invalidateQueries({ queryKey: ["admin-grade12-units"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const saveTip = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => upsertTip({ data: payload as never }),
+    onSuccess: () => {
+      toast.success(t("saved"));
+      qc.invalidateQueries({ queryKey: ["admin-grade12-tips"] });
+      setTipOpen(false);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const removeTip = useMutation({
+    mutationFn: async (id: string) => deleteTip({ data: { id } }),
+    onSuccess: () => {
+      toast.success(t("deleted"));
+      qc.invalidateQueries({ queryKey: ["admin-grade12-tips"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const units = (unitsQ.data?.units ?? []) as Array<Record<string, unknown>>;
+  const tips = (tipsQ.data?.tips ?? []) as Array<Record<string, unknown>>;
+  const nextNumber = units.length ? Math.max(...units.map((u) => Number(u.number) || 0)) + 1 : 1;
+  const nextTipOrder = tips.length ? Math.max(...tips.map((tp) => Number(tp.order_index) || 0)) + 1 : 0;
+
+  const blankUnit = (): Record<string, unknown> => ({
+    number: nextNumber,
+    title_en: "",
+    title_sorani: "",
+    title_badini: "",
+    theme_en: "",
+    theme_sorani: "",
+    theme_badini: "",
+    grammar_json: { name_en: "", name_sorani: "", name_badini: "", explanation: "", examples: [""] },
+    vocabulary_json: [{ word: "", pos: "", meaning_en: "", sorani: "", badini: "", example: "" }],
+    reading_title: "",
+    reading_passage: "",
+    quiz_json: [{ id: crypto.randomUUID(), prompt: "", choices: ["", ""], correctIndex: 0 }],
+    writing_prompt: "",
+  });
+
+  return (
+    <div className="grid gap-10">
+      {/* ---- Units ---- */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-display font-semibold">Grade 12 units</h2>
+          <Button
+            onClick={() => {
+              setEditingUnit(blankUnit());
+              setUnitOpen(true);
+            }}
+          >
+            {t("add_new")}
+          </Button>
+        </div>
+        <div className="grid gap-2">
+          {units.length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
+          {units.map((u) => {
+            const vocabCount = Array.isArray(u.vocabulary_json) ? (u.vocabulary_json as unknown[]).length : 0;
+            const quizCount = Array.isArray(u.quiz_json) ? (u.quiz_json as unknown[]).length : 0;
+            return (
+              <Card key={u.id as string}>
+                <CardContent className="p-3 flex justify-between items-center gap-3">
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">
+                      {String(u.number)}. {String(u.title_en)}
+                      <span className="text-muted-foreground text-sm"> — {String(u.title_sorani)}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      {vocabCount} vocab · {quizCount} quiz questions
+                    </div>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setEditingUnit(u);
+                        setUnitOpen(true);
+                      }}
+                    >
+                      {t("edit")}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        if (confirm(t("confirm_delete"))) removeUnit.mutate(u.id as string);
+                      }}
+                    >
+                      {t("delete")}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+        <Dialog open={unitOpen} onOpenChange={setUnitOpen}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{t("admin_grade12")}</DialogTitle>
+            </DialogHeader>
+            {editingUnit && <Grade12UnitForm value={editingUnit} onChange={setEditingUnit} />}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setUnitOpen(false)}>
+                {t("cancel")}
+              </Button>
+              <Button onClick={() => editingUnit && saveUnit.mutate(editingUnit)} disabled={saveUnit.isPending}>
+                {saveUnit.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+                {t("save")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* ---- Exam tips ---- */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-display font-semibold">Exam tips</h2>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setEditingTip({ order_index: nextTipOrder, tip_en: "", tip_sorani: "" });
+              setTipOpen(true);
+            }}
+          >
+            {t("add_new")}
+          </Button>
+        </div>
+        <div className="grid gap-2">
+          {tips.length === 0 && <p className="text-muted-foreground">{t("no_data")}</p>}
+          {tips.map((tp) => (
+            <Card key={tp.id as string}>
+              <CardContent className="p-3 flex justify-between items-center gap-3">
+                <p className="text-sm min-w-0 truncate">{String(tp.tip_en)}</p>
+                <div className="flex gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setEditingTip(tp);
+                      setTipOpen(true);
+                    }}
+                  >
+                    {t("edit")}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      if (confirm(t("confirm_delete"))) removeTip.mutate(tp.id as string);
+                    }}
+                  >
+                    {t("delete")}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Dialog open={tipOpen} onOpenChange={setTipOpen}>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Exam tip</DialogTitle>
+            </DialogHeader>
+            {editingTip && <Grade12TipForm value={editingTip} onChange={setEditingTip} />}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setTipOpen(false)}>
+                {t("cancel")}
+              </Button>
+              <Button onClick={() => editingTip && saveTip.mutate(editingTip)} disabled={saveTip.isPending}>
+                {saveTip.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+                {t("save")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
+  );
+}
+
+function Grade12UnitForm({ value, onChange }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
+  const set = (k: string, v: unknown) => onChange({ ...value, [k]: v });
+  const grammar = (value.grammar_json ?? {}) as Record<string, unknown>;
+  const setGrammar = (patch: Record<string, unknown>) => set("grammar_json", { ...grammar, ...patch });
+  const vocabulary = (value.vocabulary_json ?? []) as Array<Record<string, unknown>>;
+  const quiz = (value.quiz_json ?? []) as Array<Record<string, unknown>>;
+  const [mode, setMode] = useState<"builder" | "json">("builder");
+
+  return (
+    <div className="grid gap-4">
+      <div className="inline-flex rounded-md border p-0.5 bg-muted/40 w-fit">
+        <Button type="button" size="sm" variant={mode === "builder" ? "default" : "ghost"} className="h-7 px-2.5" onClick={() => setMode("builder")}>
+          Builder
+        </Button>
+        <Button type="button" size="sm" variant={mode === "json" ? "default" : "ghost"} className="h-7 px-2.5" onClick={() => setMode("json")}>
+          Paste JSON
+        </Button>
+      </div>
+
+      {mode === "json" ? (
+        <div className="grid gap-1.5">
+          <Textarea
+            rows={22}
+            className="font-mono text-xs"
+            dir="ltr"
+            value={JSON.stringify(value, null, 2)}
+            onChange={(e) => {
+              try {
+                const parsed = JSON.parse(e.target.value);
+                if (parsed && typeof parsed === "object") onChange({ ...value, ...(parsed as Record<string, unknown>) });
+              } catch {
+                /* keep typing */
+              }
+            }}
+          />
+          <p className="text-xs text-muted-foreground">
+            Paste a full unit object: <code>number</code>, <code>title_en</code>/<code>title_sorani</code>/<code>title_badini</code>,{" "}
+            <code>theme_en</code>/<code>theme_sorani</code>/<code>theme_badini</code>, <code>grammar_json</code> ({"{"}name_en, name_sorani,
+            name_badini, explanation, examples[]{"}"}), <code>vocabulary_json</code> (array of {"{"}word, pos, meaning_en, sorani, badini,
+            example{"}"}), <code>reading_title</code>, <code>reading_passage</code>, <code>quiz_json</code> (array of {"{"}id, prompt,
+            choices[], correctIndex{"}"}), <code>writing_prompt</code>.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-[100px_1fr] gap-2 items-start">
+            <div>
+              <Label>Number</Label>
+              <Input type="number" value={(value.number ?? 1) as number} onChange={(e) => set("number", Number(e.target.value))} />
+            </div>
+            <div>
+              <Label>Reading title</Label>
+              <Input dir="ltr" value={(value.reading_title ?? "") as string} onChange={(e) => set("reading_title", e.target.value)} />
+            </div>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label>Unit title</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Input dir="ltr" placeholder="English" value={(value.title_en ?? "") as string} onChange={(e) => set("title_en", e.target.value)} />
+              <Input dir="rtl" placeholder="Sorani" value={(value.title_sorani ?? "") as string} onChange={(e) => set("title_sorani", e.target.value)} />
+              <Input dir="rtl" placeholder="Badini (optional)" value={(value.title_badini ?? "") as string} onChange={(e) => set("title_badini", e.target.value)} />
+            </div>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label>Theme / one-line description</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Input dir="ltr" placeholder="English" value={(value.theme_en ?? "") as string} onChange={(e) => set("theme_en", e.target.value)} />
+              <Input dir="rtl" placeholder="Sorani" value={(value.theme_sorani ?? "") as string} onChange={(e) => set("theme_sorani", e.target.value)} />
+              <Input dir="rtl" placeholder="Badini (optional)" value={(value.theme_badini ?? "") as string} onChange={(e) => set("theme_badini", e.target.value)} />
+            </div>
+          </div>
+
+          <div className="rounded-md border p-3 bg-muted/20 grid gap-2">
+            <Label>Grammar focus</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Input dir="ltr" placeholder="Name (English)" value={(grammar.name_en ?? "") as string} onChange={(e) => setGrammar({ name_en: e.target.value })} />
+              <Input dir="rtl" placeholder="Name (Sorani)" value={(grammar.name_sorani ?? "") as string} onChange={(e) => setGrammar({ name_sorani: e.target.value })} />
+              <Input dir="rtl" placeholder="Name (Badini, optional)" value={(grammar.name_badini ?? "") as string} onChange={(e) => setGrammar({ name_badini: e.target.value })} />
+            </div>
+            <Textarea
+              dir="ltr"
+              rows={3}
+              placeholder="Explanation (English)"
+              value={(grammar.explanation ?? "") as string}
+              onChange={(e) => setGrammar({ explanation: e.target.value })}
+            />
+            <Label className="text-xs text-muted-foreground">Examples</Label>
+            <Grade12StringListEditor items={(grammar.examples ?? []) as string[]} onChange={(items) => setGrammar({ examples: items })} addLabel="+ Example" />
+          </div>
+
+          <div>
+            <Label>Reading passage (English)</Label>
+            <Textarea dir="ltr" rows={6} value={(value.reading_passage ?? "") as string} onChange={(e) => set("reading_passage", e.target.value)} />
+          </div>
+
+          <div>
+            <Label>Vocabulary</Label>
+            <Grade12VocabEditor items={vocabulary} onChange={(items) => set("vocabulary_json", items)} />
+          </div>
+
+          <div>
+            <Label>Quiz questions</Label>
+            <Grade12QuizEditor items={quiz} onChange={(items) => set("quiz_json", items)} />
+          </div>
+
+          <div>
+            <Label>Writing prompt (English)</Label>
+            <Textarea dir="ltr" rows={2} value={(value.writing_prompt ?? "") as string} onChange={(e) => set("writing_prompt", e.target.value)} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Grade12StringListEditor({ items, onChange, addLabel }: { items: string[]; onChange: (v: string[]) => void; addLabel: string }) {
+  const list = items ?? [];
+  const update = (i: number, v: string) => {
+    const next = list.slice();
+    next[i] = v;
+    onChange(next);
+  };
+  const remove = (i: number) => onChange(list.filter((_, idx) => idx !== i));
+  const add = () => onChange([...list, ""]);
+  return (
+    <div className="grid gap-1.5">
+      {list.map((item, i) => (
+        <div key={i} className="flex gap-2">
+          <Textarea dir="ltr" rows={2} className="text-sm" value={item} onChange={(e) => update(i, e.target.value)} />
+          <Button type="button" size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-destructive" onClick={() => remove(i)}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" className="w-fit" onClick={add}>
+        {addLabel}
+      </Button>
+    </div>
+  );
+}
+
+function Grade12VocabEditor({ items, onChange }: { items: Array<Record<string, unknown>>; onChange: (v: Array<Record<string, unknown>>) => void }) {
+  const list = items ?? [];
+  const update = (i: number, patch: Record<string, unknown>) => {
+    const next = list.slice();
+    next[i] = { ...next[i], ...patch };
+    onChange(next);
+  };
+  const remove = (i: number) => onChange(list.filter((_, idx) => idx !== i));
+  const add = () => onChange([...list, { word: "", pos: "", meaning_en: "", sorani: "", badini: "", example: "" }]);
+  return (
+    <div className="grid gap-2">
+      {list.map((w, i) => (
+        <div key={i} className="rounded-md border p-2.5 bg-muted/20 grid gap-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Word {i + 1}</span>
+            <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => remove(i)}>
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+          <div className="grid grid-cols-[2fr_1fr] gap-1.5">
+            <Input dir="ltr" placeholder="word" value={(w.word ?? "") as string} onChange={(e) => update(i, { word: e.target.value })} />
+            <Input dir="ltr" placeholder="pos (v., n., adj.)" value={(w.pos ?? "") as string} onChange={(e) => update(i, { pos: e.target.value })} />
+          </div>
+          <Input dir="ltr" placeholder="English meaning" value={(w.meaning_en ?? "") as string} onChange={(e) => update(i, { meaning_en: e.target.value })} />
+          <div className="grid grid-cols-2 gap-1.5">
+            <Input dir="rtl" placeholder="Sorani" value={(w.sorani ?? "") as string} onChange={(e) => update(i, { sorani: e.target.value })} />
+            <Input dir="rtl" placeholder="Badini (optional)" value={(w.badini ?? "") as string} onChange={(e) => update(i, { badini: e.target.value })} />
+          </div>
+          <Input dir="ltr" placeholder="Example sentence" value={(w.example ?? "") as string} onChange={(e) => update(i, { example: e.target.value })} />
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" className="w-fit" onClick={add}>
+        + Word
+      </Button>
+    </div>
+  );
+}
+
+function Grade12QuizEditor({ items, onChange }: { items: Array<Record<string, unknown>>; onChange: (v: Array<Record<string, unknown>>) => void }) {
+  const list = items ?? [];
+  const update = (i: number, patch: Record<string, unknown>) => {
+    const next = list.slice();
+    next[i] = { ...next[i], ...patch };
+    onChange(next);
+  };
+  const remove = (i: number) => onChange(list.filter((_, idx) => idx !== i));
+  const add = () => onChange([...list, { id: crypto.randomUUID(), prompt: "", choices: ["", ""], correctIndex: 0 }]);
+
+  const updateChoice = (qi: number, ci: number, v: string) => {
+    const choices = ((list[qi].choices ?? []) as string[]).slice();
+    choices[ci] = v;
+    update(qi, { choices });
+  };
+  const addChoice = (qi: number) => {
+    const choices = [...((list[qi].choices ?? []) as string[]), ""];
+    update(qi, { choices });
+  };
+  const removeChoice = (qi: number, ci: number) => {
+    const choices = ((list[qi].choices ?? []) as string[]).filter((_, idx) => idx !== ci);
+    const correctIndex = Number(list[qi].correctIndex ?? 0);
+    update(qi, { choices, correctIndex: correctIndex >= choices.length ? 0 : correctIndex });
+  };
+
+  return (
+    <div className="grid gap-2">
+      {list.map((q, qi) => {
+        const choices = (q.choices ?? []) as string[];
+        const correctIndex = Number(q.correctIndex ?? 0);
+        return (
+          <div key={(q.id as string) ?? qi} className="rounded-md border p-2.5 bg-muted/20 grid gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Question {qi + 1}</span>
+              <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => remove(qi)}>
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </div>
+            <Textarea
+              dir="ltr"
+              rows={2}
+              className="text-sm"
+              placeholder="Question prompt"
+              value={(q.prompt ?? "") as string}
+              onChange={(e) => update(qi, { prompt: e.target.value })}
+            />
+            <div className="grid gap-1.5">
+              {choices.map((c, ci) => (
+                <div key={ci} className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant={correctIndex === ci ? "default" : "outline"}
+                    className="h-8 w-8 shrink-0"
+                    title="Mark as the correct answer"
+                    onClick={() => update(qi, { correctIndex: ci })}
+                  >
+                    {correctIndex === ci ? "✓" : ci + 1}
+                  </Button>
+                  <Input dir="ltr" className="text-sm" value={c} onChange={(e) => updateChoice(qi, ci, e.target.value)} />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0 text-destructive"
+                    onClick={() => removeChoice(qi, ci)}
+                    disabled={choices.length <= 2}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => addChoice(qi)} disabled={choices.length >= 6}>
+                + Choice
+              </Button>
+            </div>
+          </div>
+        );
+      })}
+      <Button type="button" variant="outline" size="sm" className="w-fit" onClick={add}>
+        + Question
+      </Button>
+    </div>
+  );
+}
+
+function Grade12TipForm({ value, onChange }: { value: Record<string, unknown>; onChange: (v: Record<string, unknown>) => void }) {
+  const set = (k: string, v: unknown) => onChange({ ...value, [k]: v });
+  return (
+    <div className="grid gap-3">
+      <div>
+        <Label>Order</Label>
+        <Input type="number" value={(value.order_index ?? 0) as number} onChange={(e) => set("order_index", Number(e.target.value))} />
+      </div>
+      <div>
+        <Label>Tip (English)</Label>
+        <Textarea dir="ltr" rows={2} value={(value.tip_en ?? "") as string} onChange={(e) => set("tip_en", e.target.value)} />
+      </div>
+      <div>
+        <Label>Tip (Sorani)</Label>
+        <Textarea dir="rtl" rows={2} value={(value.tip_sorani ?? "") as string} onChange={(e) => set("tip_sorani", e.target.value)} />
+      </div>
     </div>
   );
 }
