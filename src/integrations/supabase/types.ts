@@ -639,6 +639,90 @@ export type Database = {
           },
         ]
       }
+      // Manually added ahead of running `supabase gen types` against the
+      // applied grade12_units / grade12_exam_tips migration — replace this
+      // block with the real codegen output once the migration has run.
+      grade12_units: {
+        Row: {
+          id: string
+          number: number
+          title_en: string
+          title_sorani: string
+          title_badini: string | null
+          theme_en: string
+          theme_sorani: string
+          theme_badini: string | null
+          grammar_json: Json
+          vocabulary_json: Json
+          reading_title: string
+          reading_passage: string
+          quiz_json: Json
+          writing_prompt: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          number: number
+          title_en: string
+          title_sorani: string
+          title_badini?: string | null
+          theme_en: string
+          theme_sorani: string
+          theme_badini?: string | null
+          grammar_json?: Json
+          vocabulary_json?: Json
+          reading_title: string
+          reading_passage: string
+          quiz_json?: Json
+          writing_prompt: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          number?: number
+          title_en?: string
+          title_sorani?: string
+          title_badini?: string | null
+          theme_en?: string
+          theme_sorani?: string
+          theme_badini?: string | null
+          grammar_json?: Json
+          vocabulary_json?: Json
+          reading_title?: string
+          reading_passage?: string
+          quiz_json?: Json
+          writing_prompt?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      grade12_exam_tips: {
+        Row: {
+          id: string
+          order_index: number
+          tip_en: string
+          tip_sorani: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          order_index?: number
+          tip_en: string
+          tip_sorani: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          order_index?: number
+          tip_en?: string
+          tip_sorani?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
